@@ -15,12 +15,14 @@ class LoginResult {
   final String refreshToken;
   final String? userId;
   final String? email;
+  final String? role;
 
   LoginResult({
     required this.accessToken,
     required this.refreshToken,
     this.userId,
     this.email,
+    this.role,
   });
 }
 
@@ -83,10 +85,11 @@ class AuthApiService {
       refreshToken: (body['refresh_token'] as String?) ?? '',
       userId: user?['id'] as String?,
       email: user?['email'] as String?,
+      role: body['role'] as String?,
     );
   }
 
-  Future<void> register(RegisterPayload payload) async {
+  Future<LoginResult> register(RegisterPayload payload) async {
     final request = http.MultipartRequest('POST', _uri('/api/auth/register'));
     request.fields['role'] = payload.role;
     request.fields['firstName'] = payload.firstName;
@@ -130,6 +133,16 @@ class AuthApiService {
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(_readError(response));
     }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final user = body['user'] as Map<String, dynamic>?;
+    return LoginResult(
+      accessToken: (body['access_token'] as String?) ?? '',
+      refreshToken: (body['refresh_token'] as String?) ?? '',
+      userId: user?['id'] as String?,
+      email: user?['email'] as String?,
+      role: body['role'] as String?,
+    );
   }
 
   Future<Map<String, dynamic>> me(String accessToken) async {

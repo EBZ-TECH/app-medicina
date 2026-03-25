@@ -5,6 +5,8 @@ import '../services/auth_api_service.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import 'register_screen.dart';
+import 'patient_home_screen.dart';
+import 'specialist_home_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -85,10 +87,21 @@ class _LoginScreenState extends State<LoginScreen> {
 
       final profile = await _authApi.me(login.accessToken);
       final role = (profile['role'] as String?) ?? 'Usuario';
+
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Bienvenido ($role)')),
-      );
+      if (role == 'Paciente') {
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => PatientHomeScreen(profile: profile),
+          ),
+        );
+      } else {
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => SpecialistHomeScreen(profile: profile),
+          ),
+        );
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

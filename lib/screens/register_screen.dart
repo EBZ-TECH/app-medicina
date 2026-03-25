@@ -3,7 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../services/auth_api_service.dart';
+import '../services/session_service.dart';
 import '../theme/app_colors.dart';
+import 'patient_home_screen.dart';
+import 'specialist_home_screen.dart';
 
 const _specialties = <String>[
   'Fisioterapia',
@@ -145,7 +148,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
     final role = _isPatient ? 'Paciente' : 'Especialista';
     setState(() => _isSubmitting = true);
     try {
-      await _authApi.register(
+      final login = await _authApi.register(
         RegisterPayload(
           role: role,
           firstName: _firstNameController.text.trim(),
@@ -160,11 +163,26 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       );
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Cuenta creada correctamente ($role)')),
+      await SessionService().saveTokens(
+        accessToken: login.accessToken,
+        refreshToken: login.refreshToken,
       );
-      Navigator.of(context).pop();
+
+      if (!mounted) return;
+
+      if (role == 'Paciente') {
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => PatientHomeScreen(),
+          ),
+        );
+      } else {
+        await Navigator.of(context).pushReplacement(
+          MaterialPageRoute(
+            builder: (_) => SpecialistHomeScreen(),
+          ),
+        );
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -178,8 +196,6 @@ class _RegisterScreenState extends State<RegisterScreen> {
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
-
-    if (!mounted) return;
   }
 
   Widget _fieldLabel(String text) {

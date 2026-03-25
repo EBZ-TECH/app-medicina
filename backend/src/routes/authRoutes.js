@@ -79,12 +79,22 @@ router.post('/register', upload.single('professionalCard'), async (req, res) => 
 
     if (profileErr) return res.status(400).json({ error: profileErr.message });
 
+    // Iniciar sesión automáticamente para que el cliente pueda navegar al home.
+    const { data: signInData, error: signInErr } = await supabaseAnon.auth.signInWithPassword({
+      email,
+      password,
+    });
+
+    if (signInErr) return res.status(400).json({ error: signInErr.message });
+
     return res.status(201).json({
+      access_token: signInData.session?.access_token,
+      refresh_token: signInData.session?.refresh_token,
       user: {
-        id: userId,
+        id: signInData.user?.id,
         email,
-        role: profileRole,
       },
+      role: profileRole,
     });
   } catch (e) {
     // eslint-disable-next-line no-console
