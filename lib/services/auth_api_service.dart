@@ -30,8 +30,8 @@ class RegisterPayload {
   final String role;
   final String firstName;
   final String lastName;
-  final String? age;
-  final String? phone;
+  final String age;
+  final String phone;
   final String email;
   final String password;
   final String? professionalTitle;
@@ -42,10 +42,10 @@ class RegisterPayload {
     required this.role,
     required this.firstName,
     required this.lastName,
+    required this.age,
+    required this.phone,
     required this.email,
     required this.password,
-    this.age,
-    this.phone,
     this.professionalTitle,
     this.specialty,
     this.professionalCard,
@@ -96,9 +96,8 @@ class AuthApiService {
     request.fields['lastName'] = payload.lastName;
     request.fields['email'] = payload.email;
     request.fields['password'] = payload.password;
-
-    if ((payload.age ?? '').trim().isNotEmpty) request.fields['age'] = payload.age!.trim();
-    if ((payload.phone ?? '').trim().isNotEmpty) request.fields['phone'] = payload.phone!.trim();
+    request.fields['age'] = payload.age.trim();
+    request.fields['phone'] = payload.phone.trim();
     if ((payload.professionalTitle ?? '').trim().isNotEmpty) {
       request.fields['professionalTitle'] = payload.professionalTitle!.trim();
     }
@@ -149,6 +148,112 @@ class AuthApiService {
     final response = await http.get(
       _uri('/api/profile/me'),
       headers: {'Authorization': 'Bearer $accessToken'},
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(_readError(response));
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final profile = body['profile'] as Map<String, dynamic>?;
+    final out = Map<String, dynamic>.from(profile ?? {});
+    if (body['rating_count'] != null) {
+      out['rating_count'] = body['rating_count'];
+    }
+    return out;
+  }
+
+  /// Especialista: bio corta y años de experiencia (JSON).
+  Future<Map<String, dynamic>> patchSpecialistProfile({
+    required String accessToken,
+    String? bioShort,
+    int? yearsExperience,
+    bool clearYearsExperience = false,
+  }) async {
+    final payload = <String, dynamic>{};
+    if (bioShort != null) payload['bio_short'] = bioShort;
+    if (clearYearsExperience) {
+      payload['years_experience'] = null;
+    } else if (yearsExperience != null) {
+      payload['years_experience'] = yearsExperience;
+    }
+
+    final response = await http.patch(
+      _uri('/api/profile/specialist-profile'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode(payload),
+    );
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(_readError(response));
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final profile = body['profile'] as Map<String, dynamic>?;
+    final out = Map<String, dynamic>.from(profile ?? {});
+    if (body['rating_count'] != null) {
+      out['rating_count'] = body['rating_count'];
+    }
+    return out;
+  }
+
+  /// Especialista: foto y bio (multipart; mismo endpoint que registro avanzado).
+  Future<Map<String, dynamic>> patchSpecialistPublic({
+    required String accessToken,
+    String? bioShort,
+    PlatformFile? profilePhoto,
+  }) async {
+    final request = http.MultipartRequest('PATCH', _uri('/api/profile/specialist-public'));
+    request.headers['Authorization'] = 'Bearer $accessToken';
+    if (bioShort != null) request.fields['bio_short'] = bioShort;
+    final file = profilePhoto;
+    if (file != null) {
+      if (file.path != null && file.path!.isNotEmpty) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'profilePhoto',
+            file.path!,
+            filename: file.name,
+          ),
+        );
+      } else if (file.bytes != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'profilePhoto',
+            file.bytes!,
+            filename: file.name,
+          ),
+        );
+      }
+    }
+
+    final streamed = await request.send();
+    final response = await http.Response.fromStream(streamed);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(_readError(response));
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final profile = body['profile'] as Map<String, dynamic>?;
+    return profile ?? <String, dynamic>{};
+  }
+
+  /// Solo pacientes (`pay_per_consult` | `monthly_subscription`).
+  Future<Map<String, dynamic>> patchPaymentPlan({
+    required String accessToken,
+    required String paymentPlan,
+  }) async {
+    final response = await http.patch(
+      _uri('/api/profile/payment-plan'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $accessToken',
+      },
+      body: jsonEncode({'payment_plan': paymentPlan}),
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {

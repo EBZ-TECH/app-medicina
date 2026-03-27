@@ -2,18 +2,12 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
+import '../constants/specialties.dart';
 import '../services/auth_api_service.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
 import 'patient_home_screen.dart';
 import 'specialist_home_screen.dart';
-
-const _specialties = <String>[
-  'Fisioterapia',
-  'Terapia ocupacional',
-  'Medicina general',
-  'Psicología',
-];
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -130,6 +124,25 @@ class _RegisterScreenState extends State<RegisterScreen> {
       );
       return;
     }
+    final ageStr = _ageController.text.trim();
+    final ageInt = int.tryParse(ageStr);
+    if (ageStr.isEmpty || ageInt == null || ageInt < 1 || ageInt > 120) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Indica una edad válida (entre 1 y 120 años)'),
+        ),
+      );
+      return;
+    }
+    final phoneStr = _phoneController.text.trim();
+    if (!_isValidPhone(phoneStr)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Indica un número de celular válido (mín. 8 caracteres y 7 dígitos)'),
+        ),
+      );
+      return;
+    }
     if (!_isPatient) {
       if (_professionalTitleController.text.trim().isEmpty) {
         ScaffoldMessenger.of(context).showSnackBar(
@@ -143,6 +156,14 @@ class _RegisterScreenState extends State<RegisterScreen> {
         );
         return;
       }
+      if (_professionalCardFile == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Adjunta tu tarjeta profesional (imagen o PDF)'),
+          ),
+        );
+        return;
+      }
     }
 
     final role = _isPatient ? 'Paciente' : 'Especialista';
@@ -153,8 +174,8 @@ class _RegisterScreenState extends State<RegisterScreen> {
           role: role,
           firstName: _firstNameController.text.trim(),
           lastName: _lastNameController.text.trim(),
-          age: _ageController.text.trim().isEmpty ? null : _ageController.text.trim(),
-          phone: _phoneController.text.trim().isEmpty ? null : _phoneController.text.trim(),
+          age: ageStr,
+          phone: phoneStr,
           email: email,
           password: _passwordController.text,
           professionalTitle: _isPatient ? null : _professionalTitleController.text.trim(),
@@ -168,18 +189,20 @@ class _RegisterScreenState extends State<RegisterScreen> {
         refreshToken: login.refreshToken,
       );
 
+      final profile = await _authApi.me(login.accessToken);
+
       if (!mounted) return;
 
       if (role == 'Paciente') {
         await Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => PatientHomeScreen(),
+            builder: (_) => PatientHomeScreen(profile: profile),
           ),
         );
       } else {
         await Navigator.of(context).pushReplacement(
           MaterialPageRoute(
-            builder: (_) => SpecialistHomeScreen(),
+            builder: (_) => SpecialistHomeScreen(profile: profile),
           ),
         );
       }
@@ -198,11 +221,11 @@ class _RegisterScreenState extends State<RegisterScreen> {
     }
   }
 
-  Widget _fieldLabel(String text) {
+  Widget _fieldLabel(String text, {bool required = true}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        text,
+        required ? '$text *' : text,
         style: GoogleFonts.inter(
           fontSize: 14,
           fontWeight: FontWeight.w500,
@@ -210,6 +233,13 @@ class _RegisterScreenState extends State<RegisterScreen> {
         ),
       ),
     );
+  }
+
+  bool _isValidPhone(String raw) {
+    final s = raw.trim();
+    if (s.length < 8) return false;
+    final digitsOnly = s.replaceAll(RegExp(r'\D'), '');
+    return digitsOnly.length >= 7;
   }
 
   Widget _userTypeOption({
@@ -319,9 +349,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
                         color: AppColors.navy,
                       ),
                     ),
-                    const SizedBox(height: 22),
+                    const SizedBox(height: 8),
                     Text(
-                      'Tipo de usuario',
+                      'Los campos marcados con * son obligatorios.',
+                      textAlign: TextAlign.center,
+                      style: GoogleFonts.inter(
+                        fontSize: 12,
+                        color: AppColors.hintGrey,
+                        height: 1.3,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    Text(
+                      'Tipo de usuario *',
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -513,7 +553,7 @@ class _RegisterScreenState extends State<RegisterScreen> {
                               Icons.keyboard_arrow_down_rounded,
                               color: AppColors.hintGrey,
                             ),
-                            items: _specialties
+                            items: kMedicalSpecialties
                                 .map(
                                   (e) => DropdownMenuItem(
                                     value: e,

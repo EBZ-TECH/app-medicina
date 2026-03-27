@@ -298,9 +298,9 @@ class _LoginScreenState extends State<LoginScreen> {
                           borderRadius: BorderRadius.circular(12),
                         ),
                         child: Text(
-                          'Demo: Usa cualquier email que contenga '
-                          '\'specialist\' para acceder como especialista, '
-                          'o cualquier otro email para acceder como paciente.',
+                          'Tu rol (Paciente o Especialista) lo defines al '
+                          'registrarte. Si aún no tienes cuenta, pulsa '
+                          '«Regístrate aquí».',
                           style: GoogleFonts.inter(
                             fontSize: 12,
                             height: 1.45,

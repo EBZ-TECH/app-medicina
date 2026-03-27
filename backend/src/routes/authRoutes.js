@@ -1,9 +1,22 @@
+const path = require('path');
+const fs = require('fs');
+
 const express = require('express');
 const multer = require('multer');
+const bcrypt = require('bcryptjs');
+const { v4: uuidv4 } = require('uuid');
 
-const { supabaseAnon, supabaseAdmin } = require('../supabaseClient');
+const { getPool } = require('../db/mysql');
+const { signAccessToken } = require('../auth/jwt');
 
 const router = express.Router();
+
+const uploadsDir = path.join(
+  process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'uploads'),
+  'professional_cards',
+);
+
+fs.mkdirSync(uploadsDir, { recursive: true });
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
@@ -14,88 +27,140 @@ function requireBodyFields(body, fields) {
   return null;
 }
 
-// POST /api/auth/register
-// Soporta multipart/form-data para subir "professionalCard" (opcional).
-router.post('/register', upload.single('professionalCard'), async (req, res) => {
-  try {
-    const {
-      role,
-      firstName,
-      lastName,
-      age,
-      phone,
-      email,
-      password,
-      professionalTitle,
-      specialty,
-    } = req.body || {};
+function parseAge(ageStr) {
+  const n = parseInt(String(ageStr).trim(), 10);
+  if (!Number.isFinite(n) || n < 1 || n > 120) return null;
+  return n;
+}
 
-    const missing = requireBodyFields(req.body, ['role', 'firstName', 'lastName', 'email', 'password']);
-    if (missing) return res.status(400).json({ error: `Missing field: ${missing}` });
+function isValidPhone(phoneStr) {
+  const s = String(phoneStr).trim();
+  if (s.length < 8) return false;
+  const digits = s.replace(/\D/g, '');
+  return digits.length >= 7;
+}
+
+function buildAuthResponse({ userId, email, role }) {
+  const payload = { sub: userId, email, role };
+  const accessToken = signAccessToken(payload);
+  return {
+    access_token: accessToken,
+    refresh_token: accessToken,
+    user: {
+      id: userId,
+      email,
+    },
+    role,
+  };
+}
+
+// POST /api/auth/register
+router.post('/register', upload.single('professionalCard'), async (req, res) => {
+  const pool = getPool();
+  const {
+    role,
+    firstName,
+    lastName,
+    age,
+    phone,
+    email,
+    password,
+    professionalTitle,
+    specialty,
+  } = req.body || {};
+
+  try {
+    const missing = requireBodyFields(req.body, [
+      'role',
+      'firstName',
+      'lastName',
+      'email',
+      'password',
+      'age',
+      'phone',
+    ]);
+    if (missing) {
+      return res.status(400).json({ error: 'Faltan datos obligatorios del registro' });
+    }
 
     const profileRole = role === 'Especialista' ? 'Especialista' : 'Paciente';
-    const safeAge = age ? parseInt(age, 10) : null;
+    const safeAge = parseAge(age);
+    if (safeAge === null) {
+      return res.status(400).json({ error: 'Indica una edad válida (entre 1 y 120 años)' });
+    }
+    if (!isValidPhone(phone)) {
+      return res.status(400).json({ error: 'Indica un número de celular válido' });
+    }
+    const phoneTrim = String(phone).trim();
+    const emailNorm = String(email).trim().toLowerCase();
 
-    const { data: created, error: createErr } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: false,
-    });
+    if (profileRole === 'Especialista') {
+      const titleOk = professionalTitle && String(professionalTitle).trim();
+      const specOk = specialty && String(specialty).trim();
+      if (!titleOk) {
+        return res.status(400).json({ error: 'El título profesional es obligatorio' });
+      }
+      if (!specOk) {
+        return res.status(400).json({ error: 'Debes seleccionar un tipo de especialista' });
+      }
+      if (!req.file) {
+        return res.status(400).json({ error: 'Debes adjuntar la tarjeta profesional (imagen o PDF)' });
+      }
+    }
 
-    if (createErr) return res.status(400).json({ error: createErr.message });
-
-    const userId = created?.user?.id;
+    const passwordHash = await bcrypt.hash(String(password), 10);
+    const userId = uuidv4();
 
     let professionalCardPath = null;
     if (profileRole === 'Especialista' && req.file) {
       const ext = (req.file.originalname.split('.').pop() || 'bin').toLowerCase();
       const fileExt = ['jpg', 'jpeg', 'png', 'pdf'].includes(ext) ? ext : 'bin';
-      professionalCardPath = `${userId}/professional_card.${fileExt}`;
-
-      const contentType = req.file.mimetype || 'application/octet-stream';
-
-      const bucket = process.env.PROFESSIONAL_CARDS_BUCKET || 'professional_cards';
-      const { error: uploadErr } = await supabaseAdmin.storage
-        .from(bucket)
-        .upload(professionalCardPath, req.file.buffer, {
-          contentType,
-          upsert: true,
-        });
-
-      if (uploadErr) return res.status(400).json({ error: uploadErr.message });
+      const filename = `${userId}_professional_card.${fileExt}`;
+      const diskPath = path.join(uploadsDir, filename);
+      await fs.promises.writeFile(diskPath, req.file.buffer);
+      professionalCardPath = path.relative(path.join(__dirname, '..', '..'), diskPath).replace(/\\/g, '/');
     }
 
-    const { error: profileErr } = await supabaseAdmin.from('profiles').insert({
-      id: userId,
-      role: profileRole,
-      first_name: firstName,
-      last_name: lastName,
-      age: safeAge,
-      phone: phone || null,
-      professional_title: profileRole === 'Especialista' ? (professionalTitle || null) : null,
-      professional_specialty: profileRole === 'Especialista' ? (specialty || null) : null,
-      professional_card_path: professionalCardPath,
-    });
+    const conn = await pool.getConnection();
+    try {
+      await conn.beginTransaction();
 
-    if (profileErr) return res.status(400).json({ error: profileErr.message });
+      await conn.query(
+        `INSERT INTO users (id, email, password_hash) VALUES (?, ?, ?)`,
+        [userId, emailNorm, passwordHash],
+      );
 
-    // Iniciar sesión automáticamente para que el cliente pueda navegar al home.
-    const { data: signInData, error: signInErr } = await supabaseAnon.auth.signInWithPassword({
-      email,
-      password,
-    });
+      await conn.query(
+        `INSERT INTO profiles (
+          id, user_id, role, first_name, last_name, age, phone,
+          professional_title, professional_specialty, professional_card_path
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          userId,
+          userId,
+          profileRole,
+          String(firstName).trim(),
+          String(lastName).trim(),
+          safeAge,
+          phoneTrim,
+          profileRole === 'Especialista' ? (professionalTitle ? String(professionalTitle).trim() : null) : null,
+          profileRole === 'Especialista' ? (specialty ? String(specialty).trim() : null) : null,
+          professionalCardPath,
+        ],
+      );
 
-    if (signInErr) return res.status(400).json({ error: signInErr.message });
+      await conn.commit();
+    } catch (e) {
+      await conn.rollback();
+      if (e && e.code === 'ER_DUP_ENTRY') {
+        return res.status(400).json({ error: 'Este correo ya está registrado' });
+      }
+      throw e;
+    } finally {
+      conn.release();
+    }
 
-    return res.status(201).json({
-      access_token: signInData.session?.access_token,
-      refresh_token: signInData.session?.refresh_token,
-      user: {
-        id: signInData.user?.id,
-        email,
-      },
-      role: profileRole,
-    });
+    return res.status(201).json(buildAuthResponse({ userId, email: emailNorm, role: profileRole }));
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error(e);
@@ -104,27 +169,31 @@ router.post('/register', upload.single('professionalCard'), async (req, res) => 
 });
 
 // POST /api/auth/login
-// Responde con tokens para que el cliente llame a /api/profile/me
 router.post('/login', async (req, res) => {
+  const pool = getPool();
+  const { email, password } = req.body || {};
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Correo y contraseña son obligatorios' });
+  }
+
   try {
-    const { email, password } = req.body || {};
-    if (!email || !password) return res.status(400).json({ error: 'Missing email or password' });
+    const emailNorm = String(email).trim().toLowerCase();
+    const [rows] = await pool.query(
+      `SELECT u.id, u.password_hash, p.role
+       FROM users u
+       JOIN profiles p ON p.user_id = u.id
+       WHERE u.email = ?
+       LIMIT 1`,
+      [emailNorm],
+    );
 
-    const { data, error } = await supabaseAnon.auth.signInWithPassword({
-      email,
-      password,
-    });
+    if (!rows.length) return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
 
-    if (error) return res.status(401).json({ error: error.message });
+    const row = rows[0];
+    const ok = await bcrypt.compare(String(password), row.password_hash);
+    if (!ok) return res.status(401).json({ error: 'Correo o contraseña incorrectos' });
 
-    return res.json({
-      access_token: data.session?.access_token,
-      refresh_token: data.session?.refresh_token,
-      user: {
-        id: data.user?.id,
-        email: data.user?.email,
-      },
-    });
+    return res.json(buildAuthResponse({ userId: row.id, email: emailNorm, role: row.role }));
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error(e);
@@ -133,4 +202,3 @@ router.post('/login', async (req, res) => {
 });
 
 module.exports = { authRouter: router };
-

@@ -1,0 +1,19 @@
+---
+description: Tras modificar código del proyecto, ejecutar la app Flutter en el emulador.
+alwaysApply: true
+---
+
+# Ejecutar la app tras cambios
+
+Cuando completes **modificaciones** en este repo (Flutter, Android o cambios que afecten al comportamiento en dispositivo):
+
+1. **Ejecuta la app** en el emulador Android (o el dispositivo disponible) para validar que compila y arranca.
+2. Comando habitual desde la raíz del proyecto:
+
+   `flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:3000`
+
+   Si `emulator-5554` no existe, usa `flutter devices` y el ID que corresponda al emulador.
+3. Si el build falla por **archivos bloqueados** en `build/`, ejecuta antes `cd android; .\gradlew.bat --stop` y vuelve a intentar (o `flutter clean` si hace falta).
+4. Ejecuta en **segundo plano** cuando el proceso sea largo (`flutter run` permanece activo) y revisa la salida para confirmar `Built` / instalación correcta.
+
+No sustituyas esto por solo "el usuario puede ejecutar": salvo impedimento del entorno, **corre el comando tú**.
