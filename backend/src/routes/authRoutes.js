@@ -6,7 +6,7 @@ const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 
-const { getPool } = require('../db/mysql');
+const { getPool } = require('../db/postgres');
 const { signAccessToken } = require('../auth/jwt');
 
 const router = express.Router();
@@ -152,7 +152,7 @@ router.post('/register', upload.single('professionalCard'), async (req, res) => 
       await conn.commit();
     } catch (e) {
       await conn.rollback();
-      if (e && e.code === 'ER_DUP_ENTRY') {
+      if (e && (e.code === '23505' || e.code === 'ER_DUP_ENTRY')) {
         return res.status(400).json({ error: 'Este correo ya está registrado' });
       }
       throw e;

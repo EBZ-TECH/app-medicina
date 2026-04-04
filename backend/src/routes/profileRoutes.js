@@ -4,7 +4,7 @@ const fs = require('fs');
 const express = require('express');
 const multer = require('multer');
 
-const { getPool } = require('../db/mysql');
+const { getPool } = require('../db/postgres');
 const { verifyAccessToken } = require('../auth/jwt');
 
 const uploadsBase = process.env.UPLOADS_DIR || path.join(__dirname, '..', '..', 'uploads');
@@ -44,7 +44,7 @@ router.get('/me', async (req, res) => {
     if (!userId) return res.status(401).json({ error: 'Invalid token' });
 
     const [rows] = await pool.query(`SELECT * FROM profiles WHERE user_id = ? LIMIT 1`, [userId]);
-    if (!rows.length) return res.status(404).json({ error: 'Profile not found' });
+    if (!rows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
 
     let ratingCount = null;
     if (rows[0].role === 'Especialista') {
@@ -63,8 +63,8 @@ router.get('/me', async (req, res) => {
   }
 });
 
-// PATCH /api/profile/specialist-profile  { "bio_short": "...", "years_experience": 10 }
-router.patch('/specialist-profile', async (req, res) => {
+// PATCH y POST (POST evita proxies/clientes que no enrutan bien PATCH hacia Express).
+async function specialistProfileUpdateHandler(req, res) {
   const pool = getPool();
   try {
     const token = getBearerToken(req);
@@ -102,6 +102,18 @@ router.patch('/specialist-profile', async (req, res) => {
         await pool.query(`UPDATE profiles SET years_experience = ? WHERE user_id = ?`, [n, userId]);
       }
     }
+    if (body.available_for_assignments !== undefined) {
+      const v = body.available_for_assignments;
+      const on = v === true || v === 1 || v === '1' || String(v).toLowerCase() === 'true';
+      const off = v === false || v === 0 || v === '0' || String(v).toLowerCase() === 'false';
+      if (!on && !off) {
+        return res.status(400).json({ error: 'available_for_assignments debe ser true o false' });
+      }
+      await pool.query(`UPDATE profiles SET available_for_assignments = ? WHERE user_id = ?`, [
+        on,
+        userId,
+      ]);
+    }
 
     const [rows] = await pool.query(`SELECT * FROM profiles WHERE user_id = ? LIMIT 1`, [userId]);
     const [cnt] = await pool.query(
@@ -114,7 +126,10 @@ router.patch('/specialist-profile', async (req, res) => {
     console.error(e);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
-});
+}
+
+router.patch('/specialist-profile', specialistProfileUpdateHandler);
+router.post('/specialist-profile', specialistProfileUpdateHandler);
 
 const ALLOWED_PAYMENT_PLANS = new Set(['pay_per_consult', 'monthly_subscription']);
 
@@ -157,8 +172,8 @@ router.patch('/payment-plan', async (req, res) => {
   }
 });
 
-// PATCH /api/profile/specialist-public  (multipart: bio_short, profilePhoto opcional)
-router.patch('/specialist-public', uploadProfilePhoto.single('profilePhoto'), async (req, res) => {
+// PATCH y POST — multipart: bio_short, profilePhoto opcional
+async function specialistPublicUpdateHandler(req, res) {
   const pool = getPool();
   try {
     const token = getBearerToken(req);
@@ -202,6 +217,17 @@ router.patch('/specialist-public', uploadProfilePhoto.single('profilePhoto'), as
     console.error(e);
     return res.status(500).json({ error: 'Error interno del servidor' });
   }
-});
+}
+
+router.patch(
+  '/specialist-public',
+  uploadProfilePhoto.single('profilePhoto'),
+  specialistPublicUpdateHandler,
+);
+router.post(
+  '/specialist-public',
+  uploadProfilePhoto.single('profilePhoto'),
+  specialistPublicUpdateHandler,
+);
 
 module.exports = { profileRouter: router };

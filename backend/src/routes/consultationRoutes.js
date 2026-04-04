@@ -1,7 +1,7 @@
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 
-const { getPool } = require('../db/mysql');
+const { getPool } = require('../db/postgres');
 const { verifyAccessToken } = require('../auth/jwt');
 
 const router = express.Router();
@@ -41,7 +41,8 @@ router.get('/specialists', async (req, res) => {
   try {
     const [rows] = await pool.query(
       `SELECT u.id AS specialist_user_id, p.first_name, p.last_name, p.professional_specialty AS specialty,
-              p.bio_short, p.profile_photo_path, p.average_rating, p.years_experience
+              p.bio_short, p.profile_photo_path, p.average_rating, p.years_experience,
+              COALESCE(p.available_for_assignments, TRUE) AS available_for_assignments
        FROM profiles p
        INNER JOIN users u ON u.id = p.user_id
        WHERE p.role = 'Especialista'
@@ -61,6 +62,10 @@ router.get('/specialists', async (req, res) => {
         r.years_experience != null && r.years_experience !== ''
           ? Number.parseInt(String(r.years_experience), 10)
           : null;
+      const accepting =
+        r.available_for_assignments === undefined || r.available_for_assignments === null
+          ? true
+          : Number(r.available_for_assignments) === 1;
       return {
         id: r.specialist_user_id,
         first_name: r.first_name,
@@ -71,6 +76,7 @@ router.get('/specialists', async (req, res) => {
         bio,
         profile_photo_path: r.profile_photo_path ? String(r.profile_photo_path).trim() : null,
         years_experience: Number.isFinite(years) ? years : null,
+        available_for_assignments: accepting,
         source: 'db',
       };
     });

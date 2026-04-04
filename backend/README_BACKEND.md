@@ -1,4 +1,6 @@
-# MediConnect Backend (Node.js + MySQL / XAMPP)
+# MediConnect Backend (Node.js + PostgreSQL / Supabase)
+
+**Guía rápida “dónde pego cada variable”:** abre [`CONFIGURACION.md`](CONFIGURACION.md) en esta carpeta y copia la plantilla desde [`.env.example`](.env.example) a `.env`.
 
 Este backend expone una API simple para:
 
@@ -29,7 +31,7 @@ Además, soporta subir el archivo de `professionalCard` en el registro de especi
 
 | Fase | Qué cubre en MediConnect |
 | --- | --- |
-| **1.1** | Backend Node + MySQL, JWT, `POST /api/auth/register`, `POST /api/auth/login` |
+| **1.1** | Backend Node + Postgres (Supabase), JWT, `POST /api/auth/register`, `POST /api/auth/login` |
 | **1.2** | Perfil `GET /api/profile/me`, sesión en app, `PATCH /api/profile/payment-plan` (paciente) |
 | **1.3** | Consultas: `POST /api/consultations`, `GET /api/consultations/specialists`, listados paciente/especialista, `PATCH` fecha, `POST .../pay` simulado |
 | **1.4** | Seguimiento clínico `GET /api/patient/monitoring/entries` (categorías y entradas) |
@@ -41,14 +43,13 @@ Además, soporta subir el archivo de `professionalCard` en el registro de especi
 
 ---
 
-## 1) MySQL (XAMPP)
+## 1) Base de datos en Supabase (PostgreSQL)
 
-1. Inicia **MySQL/MariaDB** en XAMPP (puerto típico `3306`).
-2. El servidor crea automáticamente:
-   - la base `MYSQL_DATABASE` (por defecto `appmedicina`)
-   - tablas `users` y `profiles`
+1. En el [panel de Supabase](https://supabase.com/dashboard), abre el proyecto **AppMedicina** (o el que uses).
+2. El esquema MediConnect (`users`, `profiles`, `consultation_requests`, `prescriptions`, etc.) puede aplicarse con el MCP de Supabase (`apply_migration`) o con el SQL en `supabase/migrations/20260404180000_initial_mediconnect_schema.sql`.
+3. Copia la **Connection string** (URI) en **Project Settings → Database**. Para Node en tu PC o en Render, suele funcionar la conexión **directa** (puerto `5432`, host `db.<ref>.supabase.co`).
 
-No necesitas ejecutar SQL manual si usas este backend tal cual. Se crean también tablas `prescriptions` y `prescription_items` (y un ejemplo de fórmula si la base está vacía y existe al menos un paciente), la tabla `specialist_ratings` (calificaciones 1.7) y migraciones en `profiles` (`years_experience`, etc.). En bases ya existentes, al arrancar se añaden a `consultation_requests` las columnas `scheduled_at` y `paid_at` si faltan.
+Al arrancar el backend, si faltan tablas en una base nueva, `initDb()` las crea de forma idempotente (equivalente al esquema anterior).
 
 ---
 
@@ -59,14 +60,14 @@ Crea un archivo `.env` en esta carpeta `backend/` basado en `.env.example`:
 - `PORT` (por defecto `3000`)
 - `CORS_ORIGIN` (`*` para pruebas, o una lista separada por coma)
 - `JWT_SECRET` (**obligatorio en producción**; cadena larga y aleatoria)
-- `MYSQL_HOST`, `MYSQL_PORT`, `MYSQL_USER`, `MYSQL_PASSWORD`, `MYSQL_DATABASE`
+- `DATABASE_URL` (URI PostgreSQL de Supabase; ver sección 1)
 - `UPLOADS_DIR` (opcional; carpeta raíz de subidas; por defecto `backend/uploads`)
 
-> No subas `JWT_SECRET` a ningún lugar público.
+> No subas `JWT_SECRET` ni la contraseña de la base a ningún lugar público.
 
 ---
 
-## 3) Ejecutar el backend
+## 3) Ejecutar el backend (local)
 
 En `backend/`:
 
@@ -78,11 +79,43 @@ npm run dev
 La API queda en:
 `http://localhost:3000`
 
+### Despliegue HTTPS (emulador / móvil sin `10.0.2.2`)
+
+Tienes **dos caminos** en Render; elige uno (no hace falta hacer los dos).
+
+#### A) Blueprint con `render.yaml` (panel web de Render)
+
+1. Sube el repo a GitHub/GitLab y en [Render Dashboard](https://dashboard.render.com): **New → Blueprint**.
+2. Conecta el repo; Render lee `render.yaml` en la **raíz**. El servicio `appmedicina-api` usa `rootDir: backend`, así que `npm install` / `npm start` se ejecutan **dentro de** `backend/`.
+3. Tras el primer deploy, en el servicio → **Environment** añade **`DATABASE_URL`** (URI de Supabase). `JWT_SECRET` puede haberse generado solo; si no, créala a mano.
+
+#### B) MCP de Render (Cursor) — qué hace y qué **no** hace
+
+Revisión del MCP `render` (herramientas expuestas en Cursor):
+
+- **No** hay una acción tipo “aplicar `render.yaml`” o “desplegar Blueprint”. El archivo `render.yaml` **solo** lo usa el flujo **A** en el dashboard.
+- **`create_web_service`** crea un Web Service nativo (Node, sin Docker desde el MCP). Parámetros relevantes: `name`, `repo` (URL Git **sin** la rama), `branch`, `runtime: node`, `buildCommand`, `startCommand`, `plan`, `region`, `envVars`, `autoDeploy`.
+- **Importante:** en el esquema del MCP **no existe `rootDir`**. El clon de Git queda en la **raíz del repo**; por tanto los comandos deben entrar en `backend/`:
+  - `buildCommand`: `cd backend && npm install`
+  - `startCommand`: `cd backend && npm start`
+- **`update_environment_variables`**: después del deploy, puedes fusionar variables (`serviceId` + lista `key`/`value`). Ahí pegas **`DATABASE_URL`**, y si hace falta **`JWT_SECRET`**, **`NODE_VERSION`** (`20`), **`CORS_ORIGIN`** (`*`), **`PORT`** (`3000`).
+- **`list_workspaces`** / **`select_workspace`**: si el MCP dice que no hay workspace, en Cursor debes **elegir workspace de Render** cuando lo pida (no automatizar `select_workspace` sin tu confirmación).
+- **`list_services`**, **`get_service`**, **`list_deploys`**, **`list_logs`**: útiles para comprobar estado y URL pública del servicio.
+
+Flujo típico con MCP (resumen): conectar cuenta Render en Cursor → elegir workspace → `create_web_service` con los `cd backend && …` de arriba y `repo` apuntando a tu AppMedicina → `update_environment_variables` con `DATABASE_URL` → copiar la URL `*.onrender.com` para **`API_UPSTREAM`** en Supabase.
+
+#### Después del backend en Render (común a A y B)
+
+1. En **Supabase → Edge Functions → Secrets**, añade **`API_UPSTREAM`** con la URL pública del Node (sin `/` final), p. ej. `https://appmedicina-api.onrender.com`.
+2. La Edge Function **`mediconnect`** reenvía el tráfico a ese backend. La app Flutter usa por defecto  
+   `https://<ref>.supabase.co/functions/v1/mediconnect`  
+   (ref por defecto `howtdxsbatfgxcmhklfc`, configurable con `--dart-define=SUPABASE_PROJECT_REF=...`).
+
 ### Reinicio limpio
 
-- **Ctrl+C** en la terminal donde corre Node: el proceso cierra el servidor HTTP y el **pool de MySQL** (evita conexiones colgadas al volver a arrancar).
+- **Ctrl+C** en la terminal donde corre Node: el proceso cierra el servidor HTTP y el **pool de Postgres**.
 - Si ves **“El puerto 3000 ya está en uso”**, sigue abierto otro `node` con el mismo `PORT`. Cierra esa terminal, o mata el proceso en el Administrador de tareas, o usa otro `PORT` en `.env`.
-- Si falla la conexión a MySQL (**ECONNREFUSED**), arranca **MySQL/XAMPP** antes de `npm run dev`.
+- Si falla la conexión a PostgreSQL, revisa `DATABASE_URL`, firewall y que el proyecto Supabase esté activo.
 
 ---
 
@@ -131,18 +164,26 @@ Devuelve:
 
 ---
 
-## 5) Flutter (apuntando a backend local)
+## 5) Flutter (Supabase Edge por defecto)
 
-Para Android emulator local:
+Por defecto la app usa la Edge Function **mediconnect** en tu proyecto Supabase (requiere `API_UPSTREAM` configurado y backend Node desplegado).
+
+Desarrollo con Node en la misma máquina que el emulador Android:
 
 ```powershell
 flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000
 ```
 
-Para Chrome o Windows desktop local:
+Chrome o Windows desktop local:
 
 ```powershell
 flutter run --dart-define=API_BASE_URL=http://localhost:3000
+```
+
+Otro proyecto Supabase:
+
+```powershell
+flutter run --dart-define=SUPABASE_PROJECT_REF=tu_ref_aqui
 ```
 
 ### Geolocalización (1.6)

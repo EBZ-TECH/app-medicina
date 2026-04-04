@@ -1,6 +1,6 @@
 const express = require('express');
 
-const { getPool } = require('../db/mysql');
+const { getPool } = require('../db/postgres');
 const { verifyAccessToken } = require('../auth/jwt');
 
 const router = express.Router();
