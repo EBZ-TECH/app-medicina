@@ -1,0 +1,26 @@
+# Despliegue en Render (HTTPS público para el emulador / dispositivos).
+# https://render.com/docs/blueprint-spec
+#
+# Solo aplica si despliegas con el DASHBOARD: New → Blueprint y este archivo en la raíz del repo.
+# El MCP de Render en Cursor NO ejecuta render.yaml: usa create_web_service (sin rootDir);
+# entonces build/start deben ser "cd backend && npm install" y "cd backend && npm start"
+# (ver README_BACKEND.md → “MCP de Render”).
+services:
+  - type: web
+    name: appmedicina-api
+    runtime: node
+    plan: free
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    envVars:
+      - key: NODE_VERSION
+        value: "20"
+      - key: PORT
+        value: "3000"
+      - key: CORS_ORIGIN
+        value: "*"
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
