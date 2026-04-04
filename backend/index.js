@@ -45,6 +45,16 @@ function healthPayload() {
   return { ok: true };
 }
 
+// Raíz: muchos usuarios abren solo la URL del host en el navegador tras el deploy.
+app.get('/', (_req, res) => {
+  res.json({
+    ok: true,
+    name: 'MediConnect API',
+    message: 'Servicio activo. Prueba /health o /api.',
+    try: ['/health', '/api'],
+  });
+});
+
 app.get('/health', (req, res) => {
   res.json(healthPayload());
 });
@@ -135,6 +145,13 @@ process.on('SIGTERM', () => shutdown('SIGTERM'));
       // eslint-disable-next-line no-console
       console.error(
         'No se pudo conectar a PostgreSQL. Revisa DATABASE_URL en .env (Supabase: Project Settings → Database).',
+      );
+    }
+    if (e.code === 'ENETUNREACH' || /2600:1f18|ENETUNREACH/i.test(String(e.message))) {
+      // eslint-disable-next-line no-console
+      console.error(
+        'Tu DATABASE_URL apunta al host directo de Supabase (IPv6). Render y muchos hosts solo IPv4 no pueden alcanzarlo.\n' +
+          'En Supabase: Connect → elige "Session pooler" / Session mode → copia la URI (host ...pooler.supabase.com:5432) y sustituye DATABASE_URL en Render y en .env.',
       );
     }
     process.exit(1);

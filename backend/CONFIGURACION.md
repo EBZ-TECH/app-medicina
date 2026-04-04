@@ -127,3 +127,11 @@ En `render.yaml`, **`DATABASE_URL`** está con `sync: false`: Render **no** pued
 - **Error Postgres** en Render → **`DATABASE_URL`** mal copiada o contraseña con caracteres sin codificar.  
 - **Solo desarrollo local** → usa en Flutter:  
   `--dart-define=API_BASE_URL=http://10.0.2.2:3000`
+
+### Render: “Deploy failed” / “Exited with status 1”
+
+1. Abre el servicio → pestaña **Logs** (o el enlace **deploy logs** del correo) y mira la **última línea en rojo**. Suele decir `Failed to start: ...` o un error de `pg` / conexión.
+2. **`DATABASE_URL` vacía en Render:** en **Environment** debe existir la variable (la misma URI que en `backend/.env`). Sin eso el proceso sale con código 1 al arrancar.
+3. **IPv4 (muy frecuente):** si el log dice **`ENETUNREACH`** y una IP que empieza por **`2600:`** (IPv6), tu `DATABASE_URL` usa el host **directo** `db.xxx.supabase.co`, que en la práctica resuelve a IPv6. **Render no llega ahí.** Solución: en Supabase pulsa **Connect** → pestaña/método **Session pooler** (Session mode, puerto **5432**) → copia la URI (usuario suele ser `postgres.TU_REF`, host `aws-0-REGION.pooler.supabase.com`). Sustituye **`DATABASE_URL`** en **Render → Environment** y en **`backend/.env`**, guarda y vuelve a desplegar.
+4. **Proyecto Supabase pausado:** reactívalo en el dashboard; si no, la conexión falla.
+5. **Contraseña con símbolos:** en la URI deben ir **codificados** (`#` → `%23`, etc.).
