@@ -2,7 +2,14 @@
   "version": "0.2.0",
   "configurations": [
     {
-      "name": "AppMedicina (Android emulator)",
+      "name": "AppMedicina (Android emulator → Render)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": []
+    },
+    {
+      "name": "AppMedicina (Android emulator → backend local)",
       "request": "launch",
       "type": "dart",
       "program": "lib/main.dart",

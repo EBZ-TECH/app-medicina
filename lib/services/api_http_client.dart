@@ -14,9 +14,9 @@ String _connectionHint([String? detail]) {
   final port = parsed.hasPort ? parsed.port : (u.startsWith('https') ? 443 : 80);
   final d = detail != null && detail.isNotEmpty ? ' ($detail)' : '';
   return 'Sin conexión con el API en $u$d.\n'
-      '1) Backend Node con DATABASE_URL (Supabase Postgres) desplegado (p. ej. Render) y secreto API_UPSTREAM en Supabase apuntando a esa URL HTTPS.\n'
-      '2) Prueba en el navegador: $u/health (vía proxy) o tu URL Render /health → {"ok":true}.\n'
-      '3) Desarrollo local: flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000 y cd backend → npm run dev.';
+      '1) Comprueba que el servicio en Render esté arriba y /health responda {"ok":true}.\n'
+      '2) Por defecto la app usa https://appmedicina-api.onrender.com (override con --dart-define=API_BASE_URL=...).\n'
+      '3) Backend local: cd backend → npm run dev y flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000';
 }
 
 Future<http.Response> apiGet(Uri url, {Map<String, String>? headers}) async {

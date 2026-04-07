@@ -8,9 +8,11 @@ alwaysApply: true
 Cuando completes **modificaciones** en este repo (Flutter, Android o cambios que afecten al comportamiento en dispositivo):
 
 1. **Ejecuta la app** en el emulador Android (o el dispositivo disponible) para validar que compila y arranca.
-2. Comando habitual desde la raíz del proyecto:
+2. Comando habitual desde la raíz del proyecto (por defecto usa el API en **Render**; no hace falta `--dart-define`):
 
-   `flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:3000`
+   `flutter run -d emulator-5554`
+
+   Para probar contra Node en el PC: `flutter run -d emulator-5554 --dart-define=API_BASE_URL=http://10.0.2.2:3000`
 
    Si `emulator-5554` no existe, usa `flutter devices` y el ID que corresponda al emulador.
 3. Si el build falla por **archivos bloqueados** en `build/`, ejecuta antes `cd android; .\gradlew.bat --stop` y vuelve a intentar (o `flutter clean` si hace falta).
