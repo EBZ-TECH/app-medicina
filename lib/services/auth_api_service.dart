@@ -4,11 +4,11 @@ import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
 import '../config/app_config.dart';
+import 'api_exception.dart';
+import 'api_http_client.dart';
+import 'api_response_helpers.dart';
 
-class ApiException implements Exception {
-  final String message;
-  ApiException(this.message);
-}
+export 'api_exception.dart';
 
 class LoginResult {
   final String accessToken;
@@ -55,27 +55,18 @@ class RegisterPayload {
 class AuthApiService {
   static Uri _uri(String path) => Uri.parse('${AppConfig.apiBaseUrl}$path');
 
-  static String _readError(http.Response response) {
-    try {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final err = body['error'];
-      if (err is String && err.isNotEmpty) return err;
-    } catch (_) {}
-    return 'Error ${response.statusCode}';
-  }
-
   Future<LoginResult> login({
     required String email,
     required String password,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/auth/login'),
       headers: const {'Content-Type': 'application/json'},
       body: jsonEncode({'email': email, 'password': password}),
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -126,11 +117,10 @@ class AuthApiService {
       }
     }
 
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final response = await apiSendMultipart(request);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -145,13 +135,13 @@ class AuthApiService {
   }
 
   Future<Map<String, dynamic>> me(String accessToken) async {
-    final response = await http.get(
+    final response = await apiGet(
       _uri('/api/profile/me'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -169,6 +159,7 @@ class AuthApiService {
     String? bioShort,
     int? yearsExperience,
     bool clearYearsExperience = false,
+    bool? availableForAssignments,
   }) async {
     final payload = <String, dynamic>{};
     if (bioShort != null) payload['bio_short'] = bioShort;
@@ -177,8 +168,11 @@ class AuthApiService {
     } else if (yearsExperience != null) {
       payload['years_experience'] = yearsExperience;
     }
+    if (availableForAssignments != null) {
+      payload['available_for_assignments'] = availableForAssignments;
+    }
 
-    final response = await http.patch(
+    final response = await apiPost(
       _uri('/api/profile/specialist-profile'),
       headers: {
         'Content-Type': 'application/json',
@@ -188,7 +182,7 @@ class AuthApiService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -206,7 +200,7 @@ class AuthApiService {
     String? bioShort,
     PlatformFile? profilePhoto,
   }) async {
-    final request = http.MultipartRequest('PATCH', _uri('/api/profile/specialist-public'));
+    final request = http.MultipartRequest('POST', _uri('/api/profile/specialist-public'));
     request.headers['Authorization'] = 'Bearer $accessToken';
     if (bioShort != null) request.fields['bio_short'] = bioShort;
     final file = profilePhoto;
@@ -230,11 +224,10 @@ class AuthApiService {
       }
     }
 
-    final streamed = await request.send();
-    final response = await http.Response.fromStream(streamed);
+    final response = await apiSendMultipart(request);
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -247,7 +240,7 @@ class AuthApiService {
     required String accessToken,
     required String paymentPlan,
   }) async {
-    final response = await http.patch(
+    final response = await apiPatch(
       _uri('/api/profile/payment-plan'),
       headers: {
         'Content-Type': 'application/json',
@@ -257,7 +250,49 @@ class AuthApiService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
+    }
+
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    final profile = body['profile'] as Map<String, dynamic>?;
+    return profile ?? <String, dynamic>{};
+  }
+
+  /// Paciente: celular y foto de perfil (multipart).
+  Future<Map<String, dynamic>> patchPatientPublic({
+    required String accessToken,
+    String? phone,
+    PlatformFile? profilePhoto,
+  }) async {
+    final request = http.MultipartRequest('POST', _uri('/api/profile/patient-public'));
+    request.headers['Authorization'] = 'Bearer $accessToken';
+    if (phone != null) request.fields['phone'] = phone.trim();
+
+    final file = profilePhoto;
+    if (file != null) {
+      if (file.path != null && file.path!.isNotEmpty) {
+        request.files.add(
+          await http.MultipartFile.fromPath(
+            'profilePhoto',
+            file.path!,
+            filename: file.name,
+          ),
+        );
+      } else if (file.bytes != null) {
+        request.files.add(
+          http.MultipartFile.fromBytes(
+            'profilePhoto',
+            file.bytes!,
+            filename: file.name,
+          ),
+        );
+      }
+    }
+
+    final response = await apiSendMultipart(request);
+
+    if (response.statusCode < 200 || response.statusCode >= 300) {
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;

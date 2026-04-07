@@ -26,6 +26,13 @@ function getBearerToken(req) {
   return parts[1];
 }
 
+function isValidPhone(phoneStr) {
+  const s = String(phoneStr ?? '').trim();
+  if (s.length < 8) return false;
+  const digits = s.replace(/\D/g, '');
+  return digits.length >= 7;
+}
+
 // GET /api/profile/me
 router.get('/me', async (req, res) => {
   const pool = getPool();
@@ -229,5 +236,57 @@ router.post(
   uploadProfilePhoto.single('profilePhoto'),
   specialistPublicUpdateHandler,
 );
+
+// PATCH y POST — multipart: phone, profilePhoto opcional (solo paciente).
+async function patientPublicUpdateHandler(req, res) {
+  const pool = getPool();
+  try {
+    const token = getBearerToken(req);
+    if (!token) return res.status(401).json({ error: 'Token requerido' });
+
+    let payload;
+    try {
+      payload = verifyAccessToken(token);
+    } catch {
+      return res.status(401).json({ error: 'Token inválido' });
+    }
+
+    const userId = payload.sub;
+    if (!userId) return res.status(401).json({ error: 'Token inválido' });
+
+    const [prows] = await pool.query(`SELECT role FROM profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    if (!prows.length) return res.status(404).json({ error: 'Perfil no encontrado' });
+    if (prows[0].role !== 'Paciente') {
+      return res.status(403).json({ error: 'Solo pacientes pueden editar este perfil' });
+    }
+
+    if (req.body?.phone !== undefined && req.body?.phone !== null) {
+      const phone = String(req.body.phone).trim();
+      if (!isValidPhone(phone)) {
+        return res.status(400).json({ error: 'Indica un número de celular válido' });
+      }
+      await pool.query(`UPDATE profiles SET phone = ? WHERE user_id = ?`, [phone, userId]);
+    }
+
+    if (req.file) {
+      const ext = (req.file.originalname.split('.').pop() || 'jpg').toLowerCase();
+      const fileExt = ['jpg', 'jpeg', 'png', 'webp'].includes(ext) ? ext : 'jpg';
+      const rel = `profile_photos/${userId}.${fileExt}`;
+      const diskPath = path.join(uploadsBase, rel);
+      await fs.promises.writeFile(diskPath, req.file.buffer);
+      await pool.query(`UPDATE profiles SET profile_photo_path = ? WHERE user_id = ?`, [rel, userId]);
+    }
+
+    const [rows] = await pool.query(`SELECT * FROM profiles WHERE user_id = ? LIMIT 1`, [userId]);
+    return res.json({ profile: rows[0] });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error(e);
+    return res.status(500).json({ error: 'Error interno del servidor' });
+  }
+}
+
+router.patch('/patient-public', uploadProfilePhoto.single('profilePhoto'), patientPublicUpdateHandler);
+router.post('/patient-public', uploadProfilePhoto.single('profilePhoto'), patientPublicUpdateHandler);
 
 module.exports = { profileRouter: router };

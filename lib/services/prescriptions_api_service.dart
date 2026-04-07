@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
 import '../config/app_config.dart';
-import 'auth_api_service.dart';
+import 'api_exception.dart';
+import 'api_http_client.dart';
+import 'api_response_helpers.dart';
 
 class PrescriptionItemDto {
   final String id;
@@ -142,22 +142,13 @@ class PrescriptionDetailDto extends PrescriptionSummaryDto {
 class PrescriptionsApiService {
   static Uri _uri(String path) => Uri.parse('${AppConfig.apiBaseUrl}$path');
 
-  static String _readError(http.Response response) {
-    try {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final err = body['error'];
-      if (err is String && err.isNotEmpty) return err;
-    } catch (_) {}
-    return 'Error ${response.statusCode}';
-  }
-
   Future<List<PrescriptionSummaryDto>> listSpecialist({required String accessToken}) async {
-    final response = await http.get(
+    final response = await apiGet(
       _uri('/api/specialist/prescriptions'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final list = body['prescriptions'] as List<dynamic>? ?? [];
@@ -165,12 +156,12 @@ class PrescriptionsApiService {
   }
 
   Future<List<PrescriptionSummaryDto>> listPatient({required String accessToken}) async {
-    final response = await http.get(
+    final response = await apiGet(
       _uri('/api/patient/prescriptions'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final list = body['prescriptions'] as List<dynamic>? ?? [];
@@ -181,12 +172,12 @@ class PrescriptionsApiService {
     required String accessToken,
     required String id,
   }) async {
-    final response = await http.get(
+    final response = await apiGet(
       _uri('/api/patient/prescriptions/$id'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final p = body['prescription'] as Map<String, dynamic>?;
@@ -208,7 +199,7 @@ class PrescriptionsApiService {
     if (deliveryLat != null) payload['delivery_lat'] = deliveryLat;
     if (deliveryLng != null) payload['delivery_lng'] = deliveryLng;
 
-    final response = await http.patch(
+    final response = await apiPatch(
       _uri('/api/patient/prescriptions/$id/delivery'),
       headers: {
         'Content-Type': 'application/json',
@@ -217,7 +208,7 @@ class PrescriptionsApiService {
       body: jsonEncode(payload),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final p = body['prescription'] as Map<String, dynamic>?;
@@ -229,7 +220,7 @@ class PrescriptionsApiService {
     required String accessToken,
     required String id,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/patient/prescriptions/$id/pay'),
       headers: {
         'Content-Type': 'application/json',
@@ -237,7 +228,7 @@ class PrescriptionsApiService {
       },
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final p = body['prescription'] as Map<String, dynamic>?;
@@ -249,7 +240,7 @@ class PrescriptionsApiService {
     required String accessToken,
     required String id,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/patient/prescriptions/$id/ship'),
       headers: {
         'Content-Type': 'application/json',
@@ -257,7 +248,7 @@ class PrescriptionsApiService {
       },
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final p = body['prescription'] as Map<String, dynamic>?;
@@ -269,7 +260,7 @@ class PrescriptionsApiService {
     required String accessToken,
     required String id,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/patient/prescriptions/$id/deliver'),
       headers: {
         'Content-Type': 'application/json',
@@ -277,7 +268,7 @@ class PrescriptionsApiService {
       },
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     final body = jsonDecode(response.body) as Map<String, dynamic>;
     final p = body['prescription'] as Map<String, dynamic>?;
@@ -301,7 +292,7 @@ class PrescriptionsApiService {
       payload['estimated_total_cents'] = estimatedTotalCents;
     }
 
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/specialist/prescriptions'),
       headers: {
         'Content-Type': 'application/json',
@@ -310,7 +301,7 @@ class PrescriptionsApiService {
       body: jsonEncode(payload),
     );
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
     return jsonDecode(response.body) as Map<String, dynamic>;
   }

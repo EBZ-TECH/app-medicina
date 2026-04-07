@@ -189,7 +189,12 @@ class _RegisterScreenState extends State<RegisterScreen> {
         refreshToken: login.refreshToken,
       );
 
-      final profile = await _authApi.me(login.accessToken);
+      final profileRaw = await _authApi.me(login.accessToken);
+      final profile = Map<String, dynamic>.from(profileRaw);
+      final em = profile['email'] as String?;
+      if (em == null || em.isEmpty) {
+        profile['email'] = email;
+      }
 
       if (!mounted) return;
 

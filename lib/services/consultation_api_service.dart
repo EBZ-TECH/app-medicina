@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
 import '../config/app_config.dart';
-import 'auth_api_service.dart';
+import 'api_exception.dart';
+import 'api_http_client.dart';
+import 'api_response_helpers.dart';
 
 String? specialistProfilePhotoUrl(String? relativePath) {
   if (relativePath == null || relativePath.isEmpty) return null;
@@ -11,7 +11,7 @@ String? specialistProfilePhotoUrl(String? relativePath) {
   if (p.startsWith('uploads/')) {
     p = p.substring('uploads/'.length);
   }
-  final base = AppConfig.apiBaseUrl.replaceAll(RegExp(r'/+$'), '');
+  final base = AppConfig.apiBaseUrl;
   return '$base/uploads/$p';
 }
 
@@ -25,6 +25,7 @@ class SpecialistDto {
   final String bio;
   final String? profilePhotoPath;
   final int? yearsExperience;
+  final bool availableForAssignments;
 
   SpecialistDto({
     required this.id,
@@ -36,6 +37,7 @@ class SpecialistDto {
     required this.bio,
     required this.profilePhotoPath,
     this.yearsExperience,
+    this.availableForAssignments = true,
   });
 
   factory SpecialistDto.fromJson(Map<String, dynamic> j) {
@@ -48,6 +50,13 @@ class SpecialistDto {
     if (j['years_experience'] != null) {
       years = (j['years_experience'] as num?)?.toInt();
     }
+    final afa = j['available_for_assignments'];
+    bool accepting = true;
+    if (afa is bool) {
+      accepting = afa;
+    } else if (afa is num) {
+      accepting = afa != 0;
+    }
     return SpecialistDto(
       id: j['id'] as String? ?? '',
       firstName: j['first_name'] as String? ?? '',
@@ -58,6 +67,7 @@ class SpecialistDto {
       bio: j['bio'] as String? ?? '',
       profilePhotoPath: j['profile_photo_path'] as String?,
       yearsExperience: years,
+      availableForAssignments: accepting,
     );
   }
 
@@ -181,29 +191,20 @@ class SpecialistConsultationDto {
 class ConsultationApiService {
   static Uri _uri(String path) => Uri.parse('${AppConfig.apiBaseUrl}$path');
 
-  static String _readError(http.Response response) {
-    try {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final err = body['error'];
-      if (err is String && err.isNotEmpty) return err;
-    } catch (_) {}
-    return 'Error ${response.statusCode}';
-  }
-
   Future<List<SpecialistDto>> fetchSpecialists({
     required String accessToken,
     required String specialty,
   }) async {
-    final uri = Uri.parse('${AppConfig.apiBaseUrl}/api/consultations/specialists').replace(
+    final uri = _uri('/api/consultations/specialists').replace(
       queryParameters: {'specialty': specialty},
     );
-    final response = await http.get(
+    final response = await apiGet(
       uri,
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -216,13 +217,13 @@ class ConsultationApiService {
   Future<List<ConsultationSummaryDto>> fetchPatientConsultations({
     required String accessToken,
   }) async {
-    final response = await http.get(
+    final response = await apiGet(
       _uri('/api/patient/consultations'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -238,7 +239,7 @@ class ConsultationApiService {
     required int rating,
     String? comment,
   }) async {
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/patient/consultations/$consultationId/rate'),
       headers: {
         'Content-Type': 'application/json',
@@ -251,20 +252,20 @@ class ConsultationApiService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
   }
 
   Future<List<SpecialistConsultationDto>> fetchSpecialistConsultations({
     required String accessToken,
   }) async {
-    final response = await http.get(
+    final response = await apiGet(
       _uri('/api/specialist/consultations'),
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -290,7 +291,7 @@ class ConsultationApiService {
       body['specialist_id'] = specialistId;
     }
 
-    final response = await http.post(
+    final response = await apiPost(
       _uri('/api/consultations'),
       headers: {
         'Content-Type': 'application/json',
@@ -300,7 +301,7 @@ class ConsultationApiService {
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final j = jsonDecode(response.body) as Map<String, dynamic>;

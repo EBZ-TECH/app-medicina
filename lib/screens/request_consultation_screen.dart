@@ -792,6 +792,17 @@ class _SpecialistTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     _StarRow(rating: specialist.rating, hasRating: specialist.hasRating),
+                    if (!specialist.availableForAssignments) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        'Fuera de servicio (sigue pudiendo atenderte)',
+                        style: GoogleFonts.inter(
+                          fontSize: 11,
+                          color: Colors.orange.shade800,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ],
                     if (specialist.yearsExperience != null) ...[
                       const SizedBox(height: 4),
                       Text(

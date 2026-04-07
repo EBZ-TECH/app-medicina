@@ -21,8 +21,17 @@ class SpecialistHomeScreen extends StatefulWidget {
   State<SpecialistHomeScreen> createState() => _SpecialistHomeScreenState();
 }
 
+bool _isOutOfServiceFromProfileMap(Map<String, dynamic> p) {
+  final v = p['available_for_assignments'];
+  if (v == null) return false;
+  if (v is bool) return !v;
+  if (v is num) return v == 0;
+  final s = '$v'.toLowerCase();
+  return s == '0' || s == 'false';
+}
+
 class _SpecialistHomeScreenState extends State<SpecialistHomeScreen> {
-  bool _outOfService = true;
+  late bool _outOfService;
   final _session = SessionService();
   final _authApi = AuthApiService();
   final _consultationApi = ConsultationApiService();
@@ -39,6 +48,7 @@ class _SpecialistHomeScreenState extends State<SpecialistHomeScreen> {
     _profile = widget.profile != null
         ? Map<String, dynamic>.from(widget.profile!)
         : <String, dynamic>{};
+    _outOfService = _isOutOfServiceFromProfileMap(_profile);
     _loadDashboard();
   }
 
@@ -55,6 +65,7 @@ class _SpecialistHomeScreenState extends State<SpecialistHomeScreen> {
         _consultations = consults;
         _prescriptions = presc;
         _profile = prof;
+        _outOfService = _isOutOfServiceFromProfileMap(_profile);
         _dashLoading = false;
       });
     } catch (_) {
@@ -174,15 +185,39 @@ class _SpecialistHomeScreenState extends State<SpecialistHomeScreen> {
             const SizedBox(height: 10),
             _AvailabilityCard(
               isOutOfService: _outOfService,
-              onChanged: (value) {
+              onChanged: (value) async {
+                final prev = _outOfService;
                 setState(() => _outOfService = value);
-                showFeatureMessage(
-                  context,
-                  title: value ? 'Fuera de servicio' : 'Disponible',
-                  body: value
-                      ? 'No recibirás nuevas asignaciones temporalmente.'
-                      : 'Volverás a recibir nuevas asignaciones.',
-                );
+                final token = await _session.getAccessToken();
+                if (token == null || !mounted) {
+                  setState(() => _outOfService = prev);
+                  return;
+                }
+                try {
+                  final updated = await _authApi.patchSpecialistProfile(
+                    accessToken: token,
+                    availableForAssignments: !value,
+                  );
+                  if (!mounted) return;
+                  setState(() => _profile = updated);
+                  if (!context.mounted) return;
+                  showFeatureMessage(
+                    context,
+                    title: value ? 'Fuera de servicio' : 'Disponible',
+                    body: value
+                        ? 'No recibirás nuevas asignaciones temporalmente.'
+                        : 'Volverás a recibir nuevas asignaciones.',
+                  );
+                } catch (_) {
+                  if (!mounted) return;
+                  setState(() => _outOfService = prev);
+                  if (!context.mounted) return;
+                  showFeatureMessage(
+                    context,
+                    title: 'No se pudo guardar',
+                    body: 'Revisa la conexión e inténtalo de nuevo.',
+                  );
+                }
               },
             ),
             const SizedBox(height: 10),

@@ -1,9 +1,9 @@
 import 'dart:convert';
 
-import 'package:http/http.dart' as http;
-
 import '../config/app_config.dart';
-import 'auth_api_service.dart';
+import 'api_exception.dart';
+import 'api_http_client.dart';
+import 'api_response_helpers.dart';
 
 class MonitoringEntryDto {
   final String id;
@@ -62,15 +62,6 @@ class MonitoringApiService {
     return u.replace(queryParameters: query);
   }
 
-  static String _readError(http.Response response) {
-    try {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final err = body['error'];
-      if (err is String && err.isNotEmpty) return err;
-    } catch (_) {}
-    return 'Error ${response.statusCode}';
-  }
-
   Future<List<MonitoringEntryDto>> fetchEntries({
     required String accessToken,
     String? category,
@@ -80,13 +71,13 @@ class MonitoringApiService {
       q['category'] = category;
     }
     final uri = _uri('/api/patient/monitoring/entries', q.isEmpty ? null : q);
-    final response = await http.get(
+    final response = await apiGet(
       uri,
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
@@ -106,13 +97,13 @@ class MonitoringApiService {
       q['category'] = category;
     }
     final uri = _uri('/api/specialist/monitoring/entries', q.isEmpty ? null : q);
-    final response = await http.get(
+    final response = await apiGet(
       uri,
       headers: {'Authorization': 'Bearer $accessToken'},
     );
 
     if (response.statusCode < 200 || response.statusCode >= 300) {
-      throw ApiException(_readError(response));
+      throw ApiException(parseApiErrorResponse(response));
     }
 
     final body = jsonDecode(response.body) as Map<String, dynamic>;
