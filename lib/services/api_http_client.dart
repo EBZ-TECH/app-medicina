@@ -10,13 +10,20 @@ const Duration _kApiTimeout = Duration(seconds: 90);
 
 String _connectionHint([String? detail]) {
   final u = AppConfig.apiBaseUrl;
-  final parsed = Uri.parse(u);
-  final port = parsed.hasPort ? parsed.port : (u.startsWith('https') ? 443 : 80);
   final d = detail != null && detail.isNotEmpty ? ' ($detail)' : '';
+  final dnsEmulator = detail != null &&
+          (detail.contains('Failed host lookup') ||
+              detail.contains('nodename nor servname'))
+      ? 'En emulador Android, "Failed host lookup" suele ser DNS/red: reinicia el '
+          'emulador, comprueba internet en el PC, o usa backend local: '
+          '`flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000` con `npm run dev` en backend.\n\n'
+      : '';
   return 'Sin conexión con el API en $u$d.\n'
-      '1) Comprueba que el servicio en Render esté arriba y /health responda {"ok":true}.\n'
-      '2) Por defecto la app usa https://appmedicina-api.onrender.com (override con --dart-define=API_BASE_URL=...).\n'
-      '3) Backend local: cd backend → npm run dev y flutter run --dart-define=API_BASE_URL=http://10.0.2.2:3000';
+      '$dnsEmulator'
+      '1) Proxy Supabase → Render. Prueba en el navegador: $u/health\n'
+      '2) Si ves "Failed host lookup" en el emulador, arregla DNS del AVD (ver README del equipo) '
+      'o usa temporalmente: --dart-define=API_BASE_URL=http://10.0.2.2:3000 con npm run dev.\n'
+      '3) Render directo: --dart-define=API_BASE_URL=https://appmedicina-api.onrender.com';
 }
 
 Future<http.Response> apiGet(Uri url, {Map<String, String>? headers}) async {
