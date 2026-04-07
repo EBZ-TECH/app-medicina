@@ -1,0 +1,1 @@
+{"error":"Ruta no encontrada en MediConnect","method":"GET","path":"/mediconnect/health"}

@@ -1,12 +1,25 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 
+/**
+ * El runtime de Supabase puede pasar el pathname completo (`/functions/v1/mediconnect/...`)
+ * o solo el sufijo bajo la función (`/mediconnect/...`). Hay que quitar ambos para que
+ * el upstream reciba `/api/...` y no `/mediconnect/api/...` (404 en Express).
+ */
 function stripFunctionPath(pathname: string): string {
-  const p = "/functions/v1/mediconnect";
-  if (pathname === p) return "/";
-  if (pathname.startsWith(p + "/")) {
-    const rest = pathname.slice(p.length);
+  const full = "/functions/v1/mediconnect";
+  if (pathname === full) return "/";
+  if (pathname.startsWith(full + "/")) {
+    const rest = pathname.slice(full.length);
     return rest.startsWith("/") ? rest : "/" + rest;
   }
+
+  const fn = "/mediconnect";
+  if (pathname === fn) return "/";
+  if (pathname.startsWith(fn + "/")) {
+    const rest = pathname.slice(fn.length);
+    return rest.startsWith("/") ? rest : "/" + rest;
+  }
+
   return pathname;
 }
 
