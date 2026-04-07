@@ -94,14 +94,18 @@ class _LoginScreenState extends State<LoginScreen> {
       final role = (profile['role'] as String?) ?? 'Usuario';
 
       if (!mounted) return;
+      // No usar await en pushReplacement: ese Future solo completa al hacer pop
+      // de la pantalla nueva; hasta entonces el finally no corría y el botón
+      // podía quedar en estado de carga de forma confusa.
+      setState(() => _isSubmitting = false);
       if (role == 'Paciente') {
-        await Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => PatientHomeScreen(profile: profile),
           ),
         );
       } else {
-        await Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => SpecialistHomeScreen(profile: profile),
           ),
@@ -109,19 +113,17 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
+      setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message)),
       );
     } catch (_) {
       if (!mounted) return;
+      setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No fue posible iniciar sesión')),
       );
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
     }
-
-    if (!mounted) return;
   }
 
   void _onRegisterTap() {

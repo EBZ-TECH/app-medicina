@@ -198,14 +198,15 @@ class _RegisterScreenState extends State<RegisterScreen> {
 
       if (!mounted) return;
 
+      setState(() => _isSubmitting = false);
       if (role == 'Paciente') {
-        await Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => PatientHomeScreen(profile: profile),
           ),
         );
       } else {
-        await Navigator.of(context).pushReplacement(
+        Navigator.of(context).pushReplacement(
           MaterialPageRoute(
             builder: (_) => SpecialistHomeScreen(profile: profile),
           ),
@@ -213,16 +214,16 @@ class _RegisterScreenState extends State<RegisterScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
+      setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message)),
       );
     } catch (_) {
       if (!mounted) return;
+      setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No fue posible crear la cuenta')),
       );
-    } finally {
-      if (mounted) setState(() => _isSubmitting = false);
     }
   }
 

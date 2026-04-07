@@ -5,7 +5,8 @@ import 'package:http/http.dart' as http;
 import '../config/app_config.dart';
 import 'api_exception.dart';
 
-const Duration _kApiTimeout = Duration(seconds: 45);
+/// Render u otros hosts pueden tardar >45s en el primer request (cold start).
+const Duration _kApiTimeout = Duration(seconds: 90);
 
 String _connectionHint([String? detail]) {
   final u = AppConfig.apiBaseUrl;
