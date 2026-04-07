@@ -278,15 +278,25 @@ class ConsultationApiService {
   Future<ConsultationCreated> createRequest({
     required String accessToken,
     required String specialty,
-    required String description,
+    required DateTime scheduledAt,
+    required String modality,
+    required String priority,
+    String? antecedentes,
+    required Map<String, dynamic> details,
     required bool automaticAssignment,
     String? specialistId,
   }) async {
     final body = <String, dynamic>{
       'specialty': specialty,
-      'description': description,
+      'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+      'modality': modality,
+      'priority': priority,
+      'details': details,
       'assignment_mode': automaticAssignment ? 'auto' : 'manual',
     };
+    if (antecedentes != null && antecedentes.trim().isNotEmpty) {
+      body['antecedentes'] = antecedentes.trim();
+    }
     if (!automaticAssignment && specialistId != null && specialistId.isNotEmpty) {
       body['specialist_id'] = specialistId;
     }

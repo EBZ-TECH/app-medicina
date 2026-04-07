@@ -6,6 +6,179 @@ const { verifyAccessToken } = require('../auth/jwt');
 
 const router = express.Router();
 
+const ALLOWED_MODALITY = new Set(['presencial', 'virtual', 'domicilio']);
+const ALLOWED_PRIORITY = new Set(['baja', 'media', 'alta', 'urgente']);
+
+function specialtySlug(spec) {
+  const s = String(spec || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+  if (s === 'fisioterapia') return 'fisioterapia';
+  if (s === 'terapia ocupacional') return 'terapia_ocupacional';
+  if (s === 'medicina general') return 'medicina_general';
+  if (s === 'psicologia') return 'psicologia';
+  return null;
+}
+
+function validateConsultationDetails(specialty, details) {
+  const slug = specialtySlug(specialty);
+  if (!slug) return { ok: false, error: 'Tipo de consulta no reconocido' };
+  const d = details && typeof details === 'object' ? details : {};
+  const req = (k) => {
+    const v = d[k];
+    return v !== undefined && v !== null && String(v).trim() !== '';
+  };
+
+  const longOk = req('descripcion_detallada') && String(d.descripcion_detallada).trim().length >= 10;
+  if (!longOk) {
+    return { ok: false, error: 'La descripción detallada debe tener al menos 10 caracteres' };
+  }
+  if (!req('motivo_consulta') || String(d.motivo_consulta).trim().length < 2) {
+    return { ok: false, error: 'Indica el motivo de consulta' };
+  }
+
+  if (slug === 'fisioterapia') {
+    if (!req('tipo_lesion')) return { ok: false, error: 'Selecciona el tipo de lesión' };
+    if (d.tipo_lesion === 'Otro' && !req('tipo_lesion_otro')) {
+      return { ok: false, error: 'Especifica el tipo de lesión (Otro)' };
+    }
+    if (!req('zona_afectada')) return { ok: false, error: 'Selecciona la zona afectada' };
+    if (d.zona_afectada === 'Otro' && !req('zona_afectada_otro')) {
+      return { ok: false, error: 'Especifica la zona afectada (Otro)' };
+    }
+    const n = Number.parseInt(String(d.nivel_dolor), 10);
+    if (!Number.isFinite(n) || n < 1 || n > 10) {
+      return { ok: false, error: 'Indica el nivel de dolor (1–10)' };
+    }
+    if (!req('movilidad')) return { ok: false, error: 'Selecciona la movilidad' };
+    if (!req('tratamiento_previo')) return { ok: false, error: 'Indica si hubo tratamiento previo' };
+    if (String(d.tratamiento_previo).toLowerCase() === 'si' && !req('tratamiento_previo_detalle')) {
+      return { ok: false, error: 'Describe el tratamiento previo' };
+    }
+    if (!req('objetivo_terapia')) return { ok: false, error: 'Selecciona el objetivo de la terapia' };
+  }
+
+  if (slug === 'terapia_ocupacional') {
+    if (!req('area_afectada')) return { ok: false, error: 'Selecciona el área afectada' };
+    if (d.area_afectada === 'Otro' && !req('area_afectada_otro')) {
+      return { ok: false, error: 'Especifica el área afectada (Otro)' };
+    }
+    if (!req('nivel_independencia')) return { ok: false, error: 'Selecciona el nivel de independencia' };
+    const acts = d.actividades_afectadas;
+    if (!Array.isArray(acts) || acts.length === 0) {
+      return { ok: false, error: 'Selecciona al menos una actividad afectada' };
+    }
+    if (acts.includes('Otro') && !req('actividades_afectadas_otro')) {
+      return { ok: false, error: 'Especifica la actividad afectada (Otro)' };
+    }
+  }
+
+  if (slug === 'medicina_general') {
+    const sint = d.sintomas_principales;
+    if (!Array.isArray(sint) || sint.length === 0) {
+      return { ok: false, error: 'Selecciona al menos un síntoma principal' };
+    }
+    if (sint.includes('Otros') && !req('sintomas_otros_texto')) {
+      return { ok: false, error: 'Especifica los otros síntomas' };
+    }
+  }
+
+  if (slug === 'psicologia') {
+    if (!req('motivo_principal')) return { ok: false, error: 'Selecciona el motivo principal' };
+    if (d.motivo_principal === 'Otro' && !req('motivo_principal_otro')) {
+      return { ok: false, error: 'Especifica el motivo principal (Otro)' };
+    }
+    if (!req('estado_emocional')) return { ok: false, error: 'Selecciona el estado emocional' };
+  }
+
+  return { ok: true, slug, details: d };
+}
+
+function formatDetailsReadable(specialty, details) {
+  const slug = specialtySlug(specialty);
+  const d = details && typeof details === 'object' ? details : {};
+  const lines = [];
+  if (slug === 'fisioterapia') {
+    lines.push(`Motivo de consulta: ${d.motivo_consulta || '—'}`);
+    lines.push(`Tipo de lesión: ${d.tipo_lesion || '—'}${d.tipo_lesion === 'Otro' ? ` (${d.tipo_lesion_otro || ''})` : ''}`);
+    lines.push(`Zona afectada: ${d.zona_afectada || '—'}${d.zona_afectada === 'Otro' ? ` (${d.zona_afectada_otro || ''})` : ''}`);
+    lines.push(`Nivel de dolor: ${d.nivel_dolor ?? '—'} / 10`);
+    lines.push(`Movilidad: ${d.movilidad || '—'}`);
+    lines.push(
+      `Tratamiento previo: ${d.tratamiento_previo || '—'}${String(d.tratamiento_previo).toLowerCase() === 'si' ? ` — ${d.tratamiento_previo_detalle || ''}` : ''}`,
+    );
+    lines.push(`Objetivo de la terapia: ${d.objetivo_terapia || '—'}`);
+    lines.push('');
+    lines.push('Descripción detallada:');
+    lines.push(String(d.descripcion_detallada || '').trim());
+  } else if (slug === 'terapia_ocupacional') {
+    lines.push(`Motivo de consulta: ${d.motivo_consulta || '—'}`);
+    lines.push(`Área afectada: ${d.area_afectada || '—'}${d.area_afectada === 'Otro' ? ` (${d.area_afectada_otro || ''})` : ''}`);
+    lines.push(`Nivel de independencia: ${d.nivel_independencia || '—'}`);
+    lines.push(`Actividades afectadas: ${Array.isArray(d.actividades_afectadas) ? d.actividades_afectadas.join(', ') : '—'}`);
+    if (Array.isArray(d.actividades_afectadas) && d.actividades_afectadas.includes('Otro')) {
+      lines.push(`Detalle actividades (Otro): ${d.actividades_afectadas_otro || '—'}`);
+    }
+    lines.push('');
+    lines.push('Descripción detallada:');
+    lines.push(String(d.descripcion_detallada || '').trim());
+  } else if (slug === 'medicina_general') {
+    lines.push(`Motivo de consulta: ${d.motivo_consulta || '—'}`);
+    lines.push(`Síntomas principales: ${Array.isArray(d.sintomas_principales) ? d.sintomas_principales.join(', ') : '—'}`);
+    if (Array.isArray(d.sintomas_principales) && d.sintomas_principales.includes('Otros')) {
+      lines.push(`Detalle otros síntomas: ${d.sintomas_otros_texto || '—'}`);
+    }
+    lines.push('');
+    lines.push('Descripción detallada:');
+    lines.push(String(d.descripcion_detallada || '').trim());
+  } else if (slug === 'psicologia') {
+    lines.push(`Motivo de consulta: ${d.motivo_consulta || '—'}`);
+    lines.push(`Motivo principal: ${d.motivo_principal || '—'}${d.motivo_principal === 'Otro' ? ` (${d.motivo_principal_otro || ''})` : ''}`);
+    lines.push(`Estado emocional: ${d.estado_emocional || '—'}`);
+    lines.push('');
+    lines.push('Descripción detallada:');
+    lines.push(String(d.descripcion_detallada || '').trim());
+  } else {
+    lines.push(JSON.stringify(d, null, 2));
+  }
+  return lines.join('\n');
+}
+
+function buildConsultationDescription({
+  specialty,
+  patientRow,
+  scheduledAtIso,
+  modality,
+  priority,
+  antecedentes,
+  detailsFormatted,
+}) {
+  const lines = [];
+  lines.push('=== Datos del paciente (autocompletados) ===');
+  const fn = patientRow?.first_name ? String(patientRow.first_name).trim() : '';
+  const ln = patientRow?.last_name ? String(patientRow.last_name).trim() : '';
+  lines.push(`Nombre: ${`${fn} ${ln}`.trim() || '—'}`);
+  if (patientRow?.phone) lines.push(`Teléfono: ${String(patientRow.phone).trim()}`);
+  if (patientRow?.age != null && patientRow.age !== '') lines.push(`Edad: ${patientRow.age}`);
+  lines.push('');
+  lines.push('=== Solicitud ===');
+  lines.push(`Tipo de consulta: ${specialty}`);
+  lines.push(
+    `Fecha y hora preferida: ${scheduledAtIso ? new Date(scheduledAtIso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' }) : '—'}`,
+  );
+  lines.push(`Modalidad: ${modality}`);
+  lines.push(`Prioridad: ${priority}`);
+  if (antecedentes && String(antecedentes).trim()) {
+    lines.push('Antecedentes relevantes:');
+    lines.push(String(antecedentes).trim());
+  }
+  lines.push('');
+  lines.push(detailsFormatted);
+  return lines.join('\n');
+}
+
 function getBearerToken(req) {
   const auth = req.headers.authorization || '';
   const parts = auth.split(' ');
@@ -104,20 +277,61 @@ router.post('/', async (req, res) => {
   if (!check.ok) return res.status(check.status).json({ error: check.error });
 
   const patientId = payload.sub;
-  const { specialty, description, assignment_mode, specialist_id } = req.body || {};
+  const body = req.body || {};
+  const {
+    specialty,
+    assignment_mode,
+    specialist_id,
+    scheduled_at,
+    modality,
+    priority,
+    antecedentes,
+    details,
+  } = body;
 
   if (!specialty || String(specialty).trim() === '') {
     return res.status(400).json({ error: 'Missing specialty' });
   }
-  if (!description || String(description).trim().length < 5) {
-    return res.status(400).json({ error: 'Describe brevemente tu necesidad (mín. 5 caracteres)' });
+
+  if (!scheduled_at || String(scheduled_at).trim() === '') {
+    return res.status(400).json({ error: 'Indica fecha y hora preferida' });
   }
+  const schedDate = new Date(String(scheduled_at));
+  if (Number.isNaN(schedDate.getTime())) {
+    return res.status(400).json({ error: 'Fecha y hora no válidas' });
+  }
+
+  const mod = String(modality || '')
+    .trim()
+    .toLowerCase();
+  if (!ALLOWED_MODALITY.has(mod)) {
+    return res.status(400).json({ error: 'Selecciona modalidad (presencial, virtual o domicilio)' });
+  }
+
+  const pri = String(priority || '')
+    .trim()
+    .toLowerCase();
+  if (!ALLOWED_PRIORITY.has(pri)) {
+    return res.status(400).json({ error: 'Selecciona prioridad (baja, media, alta o urgente)' });
+  }
+
+  let detailsObj = details;
+  if (typeof detailsObj === 'string') {
+    try {
+      detailsObj = JSON.parse(detailsObj);
+    } catch {
+      return res.status(400).json({ error: 'Formato de detalle inválido' });
+    }
+  }
+
+  const specNorm = String(specialty).trim();
+  const v = validateConsultationDetails(specNorm, detailsObj);
+  if (!v.ok) return res.status(400).json({ error: v.error });
+
   const mode = assignment_mode === 'auto' ? 'auto' : 'manual';
   if (mode === 'manual' && (!specialist_id || String(specialist_id).trim() === '')) {
     return res.status(400).json({ error: 'Selecciona un especialista' });
   }
-
-  const specNorm = String(specialty).trim();
 
   let specialistUserId = null;
   let specialistLabel = null;
@@ -163,25 +377,48 @@ router.post('/', async (req, res) => {
     specialistLabel = `Dr(a). ${prow[0].first_name} ${prow[0].last_name} — ${prow[0].professional_specialty}`;
   }
 
+  const [pRows] = await pool.query(
+    `SELECT first_name, last_name, age, phone FROM profiles WHERE user_id = ? LIMIT 1`,
+    [patientId],
+  );
+  const patientRow = pRows.length ? pRows[0] : null;
+
+  const antText = antecedentes != null ? String(antecedentes).trim() : '';
+  const detailsFormatted = formatDetailsReadable(specNorm, v.details);
+  const descriptionText = buildConsultationDescription({
+    specialty: specNorm,
+    patientRow,
+    scheduledAtIso: schedDate.toISOString(),
+    modality: mod,
+    priority: pri,
+    antecedentes: antText,
+    detailsFormatted,
+  });
+
   const id = uuidv4();
-  const status =
-    specialistUserId && specialistLabel ? 'assigned' : 'pending';
+  const status = specialistUserId && specialistLabel ? 'assigned' : 'pending';
 
   try {
     await pool.query(
       `INSERT INTO consultation_requests (
         id, patient_user_id, specialty, description, assignment_mode,
-        specialist_user_id, specialist_label, status
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        specialist_user_id, specialist_label, status,
+        scheduled_at, modality, priority, antecedentes, details_json
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?::jsonb)`,
       [
         id,
         patientId,
-        String(specialty).trim(),
-        String(description).trim(),
+        specNorm,
+        descriptionText,
         mode,
         specialistUserId,
         specialistLabel,
         status,
+        schedDate.toISOString(),
+        mod,
+        pri,
+        antText || null,
+        JSON.stringify(v.details),
       ],
     );
 

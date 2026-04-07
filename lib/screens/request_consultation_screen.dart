@@ -6,6 +6,8 @@ import '../services/auth_api_service.dart';
 import '../services/consultation_api_service.dart';
 import '../services/session_service.dart';
 import '../theme/app_colors.dart';
+import 'request_consultation_form_data.dart';
+import 'request_consultation_step1_fields.dart';
 
 /// Flujo en dos pasos: información → elección de especialista (manual o automático).
 class RequestConsultationScreen extends StatefulWidget {
@@ -28,7 +30,11 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
 
   final _session = SessionService();
   final _api = ConsultationApiService();
-  final _descriptionController = TextEditingController();
+  final _authApi = AuthApiService();
+  final RequestConsultationFormData _form = RequestConsultationFormData();
+
+  Map<String, dynamic> _patientProfile = {};
+  bool _loadingProfile = true;
 
   int _step = 0;
   String? _specialty;
@@ -53,21 +59,33 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     }
     final d = widget.initialDescription?.trim();
     if (d != null && d.isNotEmpty) {
-      _descriptionController.text = d;
+      _form.antecedentes.text = d;
+    }
+    _loadPatientProfile();
+  }
+
+  Future<void> _loadPatientProfile() async {
+    final token = await _session.getAccessToken();
+    if (token == null || !mounted) {
+      setState(() => _loadingProfile = false);
+      return;
+    }
+    try {
+      final p = await _authApi.me(token);
+      if (!mounted) return;
+      setState(() {
+        _patientProfile = p;
+        _loadingProfile = false;
+      });
+    } catch (_) {
+      if (mounted) setState(() => _loadingProfile = false);
     }
   }
 
   @override
   void dispose() {
-    _descriptionController.dispose();
+    _form.dispose();
     super.dispose();
-  }
-
-  bool get _step1Valid {
-    final desc = _descriptionController.text.trim();
-    return _specialty != null &&
-        _specialty!.isNotEmpty &&
-        desc.length >= 5;
   }
 
   bool get _canConfirm {
@@ -152,10 +170,9 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
   }
 
   void _goStep2() {
-    if (!_step1Valid) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Selecciona especialidad y describe tu necesidad (mín. 5 caracteres).')),
-      );
+    final err = _form.validateStep1(_specialty);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
       return;
     }
     setState(() {
@@ -167,6 +184,25 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     } else {
       _checkAutoAvailability();
     }
+  }
+
+  Future<void> _pickSchedule() async {
+    final now = DateTime.now();
+    final d = await showDatePicker(
+      context: context,
+      initialDate: _form.scheduledAt ?? now.add(const Duration(days: 1)),
+      firstDate: now,
+      lastDate: now.add(const Duration(days: 365)),
+    );
+    if (d == null || !mounted) return;
+    final t = await showTimePicker(
+      context: context,
+      initialTime: TimeOfDay.fromDateTime(_form.scheduledAt ?? now),
+    );
+    if (t == null || !mounted) return;
+    setState(() {
+      _form.scheduledAt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+    });
   }
 
   Future<void> _submit() async {
@@ -181,10 +217,15 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     }
     setState(() => _submitting = true);
     try {
+      final details = _form.buildDetailsJson(_specialty!.trim());
       final result = await _api.createRequest(
         accessToken: token,
         specialty: _specialty!.trim(),
-        description: _descriptionController.text.trim(),
+        scheduledAt: _form.scheduledAt!,
+        modality: _form.modality!,
+        priority: _form.priority!,
+        antecedentes: _form.antecedentes.text.trim().isEmpty ? null : _form.antecedentes.text.trim(),
+        details: details,
         automaticAssignment: !_chooseSpecialistManually,
         specialistId: _chooseSpecialistManually ? _selectedSpecialistId : null,
       );
@@ -273,7 +314,34 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     );
   }
 
+  String _fmtDateTime(DateTime d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}:${two(d.minute)}';
+  }
+
+  InputDecoration _fieldDeco() {
+    return InputDecoration(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: _primaryBlue, width: 1.5),
+      ),
+    );
+  }
+
   Widget _buildStep1Card() {
+    final fn = (_patientProfile['first_name'] as String?)?.trim() ?? '';
+    final ln = (_patientProfile['last_name'] as String?)?.trim() ?? '';
+    final name = [fn, ln].where((s) => s.isNotEmpty).join(' ');
+    final email = (_patientProfile['email'] as String?)?.trim();
+    final phone = (_patientProfile['phone'] as String?)?.trim();
+    final age = _patientProfile['age'];
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -292,6 +360,51 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
+            'Tu información',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 8),
+          if (_loadingProfile)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Center(child: CircularProgressIndicator(color: _primaryBlue)),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    name.isEmpty ? 'Paciente' : name,
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: AppColors.navy),
+                  ),
+                  if (email != null && email.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(email, style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
+                  ],
+                  if (phone != null && phone.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text('Celular: $phone', style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
+                  ],
+                  if (age != null) ...[
+                    const SizedBox(height: 4),
+                    Text('Edad: $age años', style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
+                  ],
+                ],
+              ),
+            ),
+          const SizedBox(height: 18),
+          Text(
             'Tipo de consulta',
             style: GoogleFonts.inter(
               fontSize: 13,
@@ -301,21 +414,9 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
           ),
           const SizedBox(height: 8),
           DropdownButtonFormField<String?>(
-            // ignore: deprecated_member_use
             value: _specialty,
             isExpanded: true,
-            decoration: InputDecoration(
-              contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: _primaryBlue, width: 1.5),
-              ),
-            ),
+            decoration: _fieldDeco(),
             hint: Text(
               'Selecciona una especialidad',
               style: GoogleFonts.inter(color: const Color(0xFF9CA3AF)),
@@ -331,9 +432,85 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
             ],
             onChanged: (v) => setState(() => _specialty = v),
           ),
-          const SizedBox(height: 18),
+          const SizedBox(height: 16),
           Text(
-            'Descripción de tu necesidad',
+            'Fecha y hora preferida',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 8),
+          OutlinedButton.icon(
+            onPressed: _pickSchedule,
+            icon: const Icon(Icons.event_outlined, color: _primaryBlue),
+            label: Text(
+              _form.scheduledAt == null ? 'Elegir fecha y hora' : _fmtDateTime(_form.scheduledAt!),
+              style: GoogleFonts.inter(
+                fontWeight: FontWeight.w600,
+                color: _form.scheduledAt == null ? const Color(0xFF6B7280) : AppColors.navy,
+              ),
+            ),
+            style: OutlinedButton.styleFrom(
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
+              side: const BorderSide(color: Color(0xFFE5E7EB)),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+            ),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Modalidad',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _form.modality,
+            isExpanded: true,
+            decoration: _fieldDeco(),
+            hint: Text('Selecciona', style: GoogleFonts.inter(color: const Color(0xFF9CA3AF))),
+            items: RequestConsultationFormData.modalidades
+                .map(
+                  (m) => DropdownMenuItem(
+                    value: m,
+                    child: Text(RequestConsultationFormData.labelModalidad(m)),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) => setState(() => _form.modality = v),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Prioridad',
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: const Color(0xFF6B7280),
+            ),
+          ),
+          const SizedBox(height: 8),
+          DropdownButtonFormField<String>(
+            value: _form.priority,
+            isExpanded: true,
+            decoration: _fieldDeco(),
+            hint: Text('Selecciona', style: GoogleFonts.inter(color: const Color(0xFF9CA3AF))),
+            items: RequestConsultationFormData.prioridades
+                .map(
+                  (p) => DropdownMenuItem(
+                    value: p,
+                    child: Text(RequestConsultationFormData.labelPrioridad(p)),
+                  ),
+                )
+                .toList(),
+            onChanged: (v) => setState(() => _form.priority = v),
+          ),
+          const SizedBox(height: 16),
+          Text(
+            'Antecedentes relevantes',
             style: GoogleFonts.inter(
               fontSize: 13,
               fontWeight: FontWeight.w600,
@@ -342,24 +519,23 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
           ),
           const SizedBox(height: 8),
           TextField(
-            controller: _descriptionController,
-            maxLines: 5,
+            controller: _form.antecedentes,
+            maxLines: 6,
             onChanged: (_) => setState(() {}),
-            decoration: InputDecoration(
-              hintText: 'Describe los síntomas o motivo de consulta...',
+            decoration: _fieldDeco().copyWith(
+              hintText: 'Alergias, cirugías previas, medicación, etc. (opcional)',
               hintStyle: GoogleFonts.inter(color: const Color(0xFF9CA3AF)),
-              border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-                borderSide: const BorderSide(color: _primaryBlue, width: 1.5),
-              ),
             ),
           ),
-          const SizedBox(height: 22),
+          const SizedBox(height: 18),
+          if (_specialty != null) ...[
+            RequestConsultationStep1Fields(
+              specialty: _specialty,
+              fd: _form,
+              onChanged: () => setState(() {}),
+            ),
+            const SizedBox(height: 18),
+          ],
           SizedBox(
             height: 50,
             child: FilledButton(

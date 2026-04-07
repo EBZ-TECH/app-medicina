@@ -136,7 +136,7 @@ class PatientProfileScreen extends StatelessWidget {
                     )
                   : const Icon(Icons.edit_outlined),
               label: Text(
-                profileBusy ? 'Guardando...' : 'Editar foto y celular',
+                profileBusy ? 'Guardando...' : 'Editar perfil',
                 style: GoogleFonts.inter(fontWeight: FontWeight.w700),
               ),
               style: OutlinedButton.styleFrom(

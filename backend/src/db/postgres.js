@@ -98,7 +98,11 @@ async function runBootstrap(client) {
       status VARCHAR(64) NOT NULL DEFAULT 'pending',
       scheduled_at TIMESTAMPTZ NULL,
       paid_at TIMESTAMPTZ NULL,
-      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      modality VARCHAR(20) NULL,
+      priority VARCHAR(20) NULL,
+      antecedentes TEXT NULL,
+      details_json JSONB NULL
     );
   `);
 
@@ -181,6 +185,22 @@ async function runBootstrap(client) {
   );
 }
 
+async function migrateConsultationRequestsColumns(client) {
+  const run = (q) => client.query(q);
+  await run(
+    `ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS modality VARCHAR(20)`,
+  );
+  await run(
+    `ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS priority VARCHAR(20)`,
+  );
+  await run(
+    `ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS antecedentes TEXT`,
+  );
+  await run(
+    `ALTER TABLE consultation_requests ADD COLUMN IF NOT EXISTS details_json JSONB`,
+  );
+}
+
 async function seedDemoPrescription(client) {
   try {
     const { rows: countRows } = await client.query('SELECT COUNT(*)::int AS c FROM prescriptions');
@@ -244,6 +264,7 @@ async function initDb() {
   const client = await nativePool.connect();
   try {
     await runBootstrap(client);
+    await migrateConsultationRequestsColumns(client);
     await seedDemoPrescription(client);
   } finally {
     client.release();
