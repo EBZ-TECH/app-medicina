@@ -9,6 +9,15 @@
       "args": []
     },
     {
+      "name": "AppMedicina (Android → Render directo)",
+      "request": "launch",
+      "type": "dart",
+      "program": "lib/main.dart",
+      "args": [
+        "--dart-define=API_BASE_URL=https://appmedicina-api.onrender.com"
+      ]
+    },
+    {
       "name": "AppMedicina (Android → API en el PC)",
       "request": "launch",
       "type": "dart",

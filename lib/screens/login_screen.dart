@@ -73,6 +73,7 @@ class _LoginScreenState extends State<LoginScreen> {
       );
       return;
     }
+    if (_isSubmitting) return;
 
     setState(() => _isSubmitting = true);
     try {
@@ -94,10 +95,6 @@ class _LoginScreenState extends State<LoginScreen> {
       final role = (profile['role'] as String?) ?? 'Usuario';
 
       if (!mounted) return;
-      // No usar await en pushReplacement: ese Future solo completa al hacer pop
-      // de la pantalla nueva; hasta entonces el finally no corría y el botón
-      // podía quedar en estado de carga de forma confusa.
-      setState(() => _isSubmitting = false);
       if (role == 'Paciente') {
         Navigator.of(context).pushReplacement(
           MaterialPageRoute(
@@ -113,16 +110,18 @@ class _LoginScreenState extends State<LoginScreen> {
       }
     } on ApiException catch (e) {
       if (!mounted) return;
-      setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text(e.message)),
       );
     } catch (_) {
       if (!mounted) return;
-      setState(() => _isSubmitting = false);
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('No fue posible iniciar sesión')),
       );
+    } finally {
+      if (mounted) {
+        setState(() => _isSubmitting = false);
+      }
     }
   }
 
@@ -240,31 +239,47 @@ class _LoginScreenState extends State<LoginScreen> {
                       SizedBox(
                         height: 52,
                         child: ElevatedButton(
-                          onPressed: _isSubmitting ? null : _onLogin,
+                          // No usar onPressed: null mientras carga: en M3 el botón se ve gris
+                          // y parece roto; el texto debe seguir visible.
+                          onPressed: () {
+                            if (_isSubmitting) return;
+                            _onLogin();
+                          },
                           style: ElevatedButton.styleFrom(
                             backgroundColor: AppColors.primaryBlue,
                             foregroundColor: Colors.white,
+                            disabledBackgroundColor: AppColors.primaryBlue,
+                            disabledForegroundColor: Colors.white,
                             elevation: 0,
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(12),
                             ),
                           ),
-                          child: _isSubmitting
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              if (_isSubmitting) ...[
+                                const SizedBox(
+                                  width: 20,
+                                  height: 20,
                                   child: CircularProgressIndicator(
                                     strokeWidth: 2.2,
                                     color: Colors.white,
                                   ),
-                                )
-                              : Text(
-                                  'Iniciar sesión',
-                                  style: GoogleFonts.inter(
-                                    fontSize: 16,
-                                    fontWeight: FontWeight.w700,
-                                  ),
                                 ),
+                                const SizedBox(width: 10),
+                              ],
+                              Text(
+                                'Iniciar sesión',
+                                style: GoogleFonts.inter(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w700,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                       const SizedBox(height: 20),

@@ -12,9 +12,9 @@ Cuando completes **modificaciones** en este repo (Flutter, Android o cambios que
 
    `flutter run -d emulator-5554`
 
-   Por defecto la app usa el proxy Supabase → Render (sin `--dart-define`).
+   Por defecto: proxy **Supabase** → Render (sin `--dart-define`).
 
-   Si el emulador falla en DNS (`Failed host lookup`), arregla el AVD o usa API local: `--dart-define=API_BASE_URL=http://10.0.2.2:3000` y `cd backend && npm run dev`.
+   Render directo: `--dart-define=API_BASE_URL=https://appmedicina-api.onrender.com`
 
    Si `emulator-5554` no existe, usa `flutter devices` y el ID que corresponda al emulador.
 3. Si el build falla por **archivos bloqueados** en `build/`, ejecuta antes `cd android; .\gradlew.bat --stop` y vuelve a intentar (o `flutter clean` si hace falta).

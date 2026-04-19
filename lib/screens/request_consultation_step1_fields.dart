@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import '../theme/app_colors.dart';
 import 'request_consultation_form_data.dart';
 
 /// Campos dinámicos del paso 1 según especialidad.
@@ -121,21 +120,26 @@ class RequestConsultationStep1Fields extends StatelessWidget {
           ),
         ],
         const SizedBox(height: 8),
-        Text(
-          'Nivel de dolor: ${fd.fiDolor.round()} / 10',
-          style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: AppColors.navy),
-        ),
-        Slider(
-          value: fd.fiDolor,
-          min: 1,
-          max: 10,
-          divisions: 9,
-          activeColor: _blue,
+        _sectionTitle('Nivel de dolor'),
+        DropdownButtonFormField<int>(
+          value: fd.fiNivelDolor,
+          decoration: _decoration('Selecciona'),
+          items: List.generate(
+            10,
+            (i) {
+              final n = i + 1;
+              return DropdownMenuItem<int>(
+                value: n,
+                child: Text('$n / 10'),
+              );
+            },
+          ),
           onChanged: (v) {
-            fd.fiDolor = v;
+            fd.fiNivelDolor = v;
             onChanged();
           },
         ),
+        const SizedBox(height: 12),
         _sectionTitle('Movilidad'),
         DropdownButtonFormField<String>(
           value: fd.fiMovilidad,
@@ -148,30 +152,17 @@ class RequestConsultationStep1Fields extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         _sectionTitle('Tratamiento previo'),
-        Row(
-          children: [
-            Expanded(
-              child: ChoiceChip(
-                label: const Text('Sí'),
-                selected: fd.fiTratamientoPrevio == 'si',
-                onSelected: (_) {
-                  fd.fiTratamientoPrevio = 'si';
-                  onChanged();
-                },
-              ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: ChoiceChip(
-                label: const Text('No'),
-                selected: fd.fiTratamientoPrevio == 'no',
-                onSelected: (_) {
-                  fd.fiTratamientoPrevio = 'no';
-                  onChanged();
-                },
-              ),
-            ),
+        DropdownButtonFormField<String>(
+          value: fd.fiTratamientoPrevio,
+          decoration: _decoration('Selecciona'),
+          items: const [
+            DropdownMenuItem(value: 'si', child: Text('Sí')),
+            DropdownMenuItem(value: 'no', child: Text('No')),
           ],
+          onChanged: (v) {
+            fd.fiTratamientoPrevio = v;
+            onChanged();
+          },
         ),
         if (fd.fiTratamientoPrevio == 'si') ...[
           const SizedBox(height: 8),

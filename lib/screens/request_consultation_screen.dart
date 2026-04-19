@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
@@ -9,7 +10,7 @@ import '../theme/app_colors.dart';
 import 'request_consultation_form_data.dart';
 import 'request_consultation_step1_fields.dart';
 
-/// Flujo en dos pasos: información → elección de especialista (manual o automático).
+/// Flujo: información → detalles por especialidad → elección de especialista.
 class RequestConsultationScreen extends StatefulWidget {
   /// Si viene de una remisión, puede rellenar especialidad y texto base.
   final String? initialSpecialty;
@@ -37,6 +38,15 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
   bool _loadingProfile = true;
 
   int _step = 0;
+  /// Antes de elegir especialista: 0 datos + agenda + antecedentes + tipo; 1 detalles por especialidad.
+  int _formSection = 0;
+
+  /// Índice 0–2 para la barra superior única (3 segmentos).
+  int get _flowStepIndex {
+    if (_step >= 1) return 2;
+    if (_formSection >= 1) return 1;
+    return 0;
+  }
   String? _specialty;
   bool _chooseSpecialistManually = true;
   String? _selectedSpecialistId;
@@ -169,6 +179,15 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     }
   }
 
+  void _goFormDetailsStep() {
+    final err = _form.validateScheduling() ?? _form.validateSpecialtySelected(_specialty);
+    if (err != null) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(err)));
+      return;
+    }
+    setState(() => _formSection = 1);
+  }
+
   void _goStep2() {
     final err = _form.validateStep1(_specialty);
     if (err != null) {
@@ -177,6 +196,7 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     }
     setState(() {
       _step = 1;
+      _formSection = 1;
       _selectedSpecialistId = null;
     });
     if (_chooseSpecialistManually) {
@@ -186,22 +206,253 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
     }
   }
 
+  /// Borrador al abrir el selector: cita guardada o mañana a las 10:00.
+  DateTime _draftScheduleStart(DateTime now) {
+    if (_form.scheduledAt != null) return _form.scheduledAt!;
+    final next = now.add(const Duration(days: 1));
+    return DateTime(next.year, next.month, next.day, 10, 0);
+  }
+
+  static const _weekdayNames = [
+    'Lunes',
+    'Martes',
+    'Miércoles',
+    'Jueves',
+    'Viernes',
+    'Sábado',
+    'Domingo',
+  ];
+  static const _monthNames = [
+    'enero',
+    'febrero',
+    'marzo',
+    'abril',
+    'mayo',
+    'junio',
+    'julio',
+    'agosto',
+    'septiembre',
+    'octubre',
+    'noviembre',
+    'diciembre',
+  ];
+
+  String _scheduleDateOnlyLabel(DateTime d) {
+    final w = _weekdayNames[d.weekday - 1];
+    final m = _monthNames[d.month - 1];
+    return '$w ${d.day} de $m de ${d.year}';
+  }
+
+  /// Texto legible en español (2 líneas: fecha · hora).
+  String _scheduleHumanSummary(DateTime d) {
+    return '${_scheduleDateOnlyLabel(d)}\n${_fmtTime(d)}';
+  }
+
+  String _fmtTime(DateTime d) {
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(d.hour)}:${two(d.minute)}';
+  }
+
   Future<void> _pickSchedule() async {
     final now = DateTime.now();
-    final d = await showDatePicker(
+    final messenger = ScaffoldMessenger.of(context);
+    final firstCalendarDate = DateTime(now.year, now.month, now.day);
+    final lastCalendarDate = now.add(const Duration(days: 365));
+
+    final draft = _draftScheduleStart(now);
+    var initialCal = DateTime(draft.year, draft.month, draft.day);
+    if (initialCal.isBefore(firstCalendarDate)) initialCal = firstCalendarDate;
+    if (initialCal.isAfter(lastCalendarDate)) initialCal = lastCalendarDate;
+
+    if (!mounted) return;
+    final pickedDay = await showDatePicker(
       context: context,
-      initialDate: _form.scheduledAt ?? now.add(const Duration(days: 1)),
-      firstDate: now,
-      lastDate: now.add(const Duration(days: 365)),
+      initialDate: initialCal,
+      firstDate: firstCalendarDate,
+      lastDate: lastCalendarDate,
+      helpText: 'Paso 1 de 2 · Elige el día',
+      cancelText: 'Cancelar',
+      confirmText: 'Siguiente',
     );
-    if (d == null || !mounted) return;
-    final t = await showTimePicker(
+    if (pickedDay == null || !mounted) return;
+
+    TimeOfDay initialTime;
+    final prev = _form.scheduledAt;
+    if (prev != null &&
+        prev.year == pickedDay.year &&
+        prev.month == pickedDay.month &&
+        prev.day == pickedDay.day) {
+      initialTime = TimeOfDay.fromDateTime(prev);
+    } else {
+      initialTime = const TimeOfDay(hour: 10, minute: 0);
+    }
+
+    if (!mounted) return;
+    final dateLabel = _scheduleDateOnlyLabel(pickedDay);
+    final timeResult = await showModalBottomSheet<TimeOfDay>(
       context: context,
-      initialTime: TimeOfDay.fromDateTime(_form.scheduledAt ?? now),
+      isScrollControlled: true,
+      useSafeArea: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (sheetContext) {
+        var hour = initialTime.hour;
+        var minute = initialTime.minute;
+        final bottomInset = MediaQuery.viewPaddingOf(sheetContext).bottom;
+        return Padding(
+          padding: EdgeInsets.only(bottom: bottomInset + 8),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  margin: const EdgeInsets.only(top: 10, bottom: 8),
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFE5E7EB),
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Paso 2 de 2 · Elige la hora',
+                  style: GoogleFonts.inter(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.navy,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  dateLabel,
+                  style: GoogleFonts.inter(
+                    fontSize: 15,
+                    fontWeight: FontWeight.w600,
+                    color: _primaryBlue,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 20),
+                child: Text(
+                  'Desliza las ruedas para elegir hora y minutos (formato 24 h).',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: AppColors.demoText,
+                    height: 1.35,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 8),
+              SizedBox(
+                height: 216,
+                child: CupertinoTheme(
+                  data: CupertinoThemeData(
+                    brightness: Brightness.light,
+                    textTheme: CupertinoTextThemeData(
+                      dateTimePickerTextStyle: GoogleFonts.inter(
+                        fontSize: 22,
+                        fontWeight: FontWeight.w600,
+                        color: AppColors.navy,
+                      ),
+                    ),
+                  ),
+                  child: CupertinoDatePicker(
+                    mode: CupertinoDatePickerMode.time,
+                    use24hFormat: true,
+                    initialDateTime: DateTime(2000, 1, 1, hour, minute),
+                    onDateTimeChanged: (dt) {
+                      hour = dt.hour;
+                      minute = dt.minute;
+                    },
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Row(
+                  children: [
+                    TextButton(
+                      onPressed: () => Navigator.of(sheetContext).pop(),
+                      child: Text(
+                        'Cancelar',
+                        style: GoogleFonts.inter(
+                          fontWeight: FontWeight.w600,
+                          color: AppColors.demoText,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: FilledButton(
+                        style: FilledButton.styleFrom(
+                          backgroundColor: _primaryBlue,
+                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                        ),
+                        onPressed: () {
+                          final combined = DateTime(
+                            pickedDay.year,
+                            pickedDay.month,
+                            pickedDay.day,
+                            hour,
+                            minute,
+                          );
+                          if (!combined.isAfter(now)) {
+                            messenger.showSnackBar(
+                              SnackBar(
+                                content: Text(
+                                  pickedDay.year == now.year &&
+                                          pickedDay.month == now.month &&
+                                          pickedDay.day == now.day
+                                      ? 'Para hoy, elige una hora que sea posterior a la hora actual.'
+                                      : 'La fecha y hora deben ser posteriores a ahora.',
+                                  style: GoogleFonts.inter(),
+                                ),
+                              ),
+                            );
+                            return;
+                          }
+                          Navigator.of(sheetContext).pop(
+                            TimeOfDay(hour: hour, minute: minute),
+                          );
+                        },
+                        child: Text(
+                          'Guardar hora',
+                          style: GoogleFonts.inter(fontWeight: FontWeight.w700, fontSize: 16),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
-    if (t == null || !mounted) return;
+
+    if (timeResult == null || !mounted) return;
     setState(() {
-      _form.scheduledAt = DateTime(d.year, d.month, d.day, t.hour, t.minute);
+      _form.scheduledAt = DateTime(
+        pickedDay.year,
+        pickedDay.month,
+        pickedDay.day,
+        timeResult.hour,
+        timeResult.minute,
+      );
     });
   }
 
@@ -305,18 +556,13 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
               ),
             ),
             const SizedBox(height: 16),
-            _StepperRow(step: _step),
+            _ThreeStepProgressBar(activeIndex: _flowStepIndex),
             const SizedBox(height: 20),
             if (_step == 0) _buildStep1Card() else _buildStep2Card(),
           ],
         ),
       ),
     );
-  }
-
-  String _fmtDateTime(DateTime d) {
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(d.day)}/${two(d.month)}/${d.year} ${two(d.hour)}:${two(d.minute)}';
   }
 
   InputDecoration _fieldDeco() {
@@ -335,13 +581,6 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
   }
 
   Widget _buildStep1Card() {
-    final fn = (_patientProfile['first_name'] as String?)?.trim() ?? '';
-    final ln = (_patientProfile['last_name'] as String?)?.trim() ?? '';
-    final name = [fn, ln].where((s) => s.isNotEmpty).join(' ');
-    final email = (_patientProfile['email'] as String?)?.trim();
-    final phone = (_patientProfile['phone'] as String?)?.trim();
-    final age = _patientProfile['age'];
-
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
@@ -359,200 +598,324 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            'Tu información',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
+          if (_formSection == 0) _buildFormSection0(),
+          if (_formSection == 1) _buildFormSectionDetails(),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildFormSection0() {
+    final fn = (_patientProfile['first_name'] as String?)?.trim() ?? '';
+    final ln = (_patientProfile['last_name'] as String?)?.trim() ?? '';
+    final name = [fn, ln].where((s) => s.isNotEmpty).join(' ');
+    final email = (_patientProfile['email'] as String?)?.trim();
+    final phone = (_patientProfile['phone'] as String?)?.trim();
+    final age = _patientProfile['age'];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Paso 1 de 3 · Datos, agenda y tipo de consulta',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _primaryBlue,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Text(
+          'Tu información',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 8),
+        if (_loadingProfile)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 12),
+            child: Center(child: CircularProgressIndicator(color: _primaryBlue)),
+          )
+        else
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? 'Paciente' : name,
+                  style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: AppColors.navy),
+                ),
+                if (email != null && email.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(email, style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
+                ],
+                if (phone != null && phone.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text('Celular: $phone', style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
+                ],
+                if (age != null) ...[
+                  const SizedBox(height: 4),
+                  Text('Edad: $age años', style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
+                ],
+              ],
             ),
           ),
-          const SizedBox(height: 8),
-          if (_loadingProfile)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 12),
-              child: Center(child: CircularProgressIndicator(color: _primaryBlue)),
-            )
-          else
-            Container(
-              padding: const EdgeInsets.all(12),
+        const SizedBox(height: 18),
+        Text(
+          'Fecha y hora preferida',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 8),
+        Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: _pickSchedule,
+            borderRadius: BorderRadius.circular(12),
+            child: Container(
+              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
               decoration: BoxDecoration(
-                color: const Color(0xFFF9FAFB),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFE5E7EB)),
               ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+              child: Row(
                 children: [
-                  Text(
-                    name.isEmpty ? 'Paciente' : name,
-                    style: GoogleFonts.inter(fontWeight: FontWeight.w700, color: AppColors.navy),
+                  Icon(
+                    Icons.edit_calendar_outlined,
+                    color: _primaryBlue,
+                    size: 22,
                   ),
-                  if (email != null && email.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text(email, style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
-                  ],
-                  if (phone != null && phone.isNotEmpty) ...[
-                    const SizedBox(height: 4),
-                    Text('Celular: $phone', style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
-                  ],
-                  if (age != null) ...[
-                    const SizedBox(height: 4),
-                    Text('Edad: $age años', style: GoogleFonts.inter(fontSize: 13, color: AppColors.demoText)),
-                  ],
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: _form.scheduledAt == null
+                        ? Text(
+                            'Toca para elegir: primero el día, luego la hora',
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF6B7280),
+                            ),
+                          )
+                        : Text(
+                            _scheduleHumanSummary(_form.scheduledAt!).replaceAll('\n', ' · '),
+                            style: GoogleFonts.inter(
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.navy,
+                              fontSize: 14,
+                              height: 1.3,
+                            ),
+                          ),
+                  ),
+                  Icon(Icons.keyboard_arrow_down_rounded, color: Colors.grey.shade500, size: 22),
                 ],
               ),
             ),
-          const SizedBox(height: 18),
-          Text(
-            'Tipo de consulta',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
-            ),
           ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String?>(
-            value: _specialty,
-            isExpanded: true,
-            decoration: _fieldDeco(),
-            hint: Text(
-              'Selecciona una especialidad',
-              style: GoogleFonts.inter(color: const Color(0xFF9CA3AF)),
-            ),
-            items: [
-              const DropdownMenuItem<String>(
-                value: null,
-                child: Text('Selecciona una especialidad'),
-              ),
-              ...kMedicalSpecialties.map(
-                (s) => DropdownMenuItem<String>(value: s, child: Text(s)),
-              ),
-            ],
-            onChanged: (v) => setState(() => _specialty = v),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Modalidad',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF6B7280),
           ),
-          const SizedBox(height: 16),
-          Text(
-            'Fecha y hora preferida',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
-            ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _form.modality,
+          isExpanded: true,
+          decoration: _fieldDeco(),
+          hint: Text('Selecciona', style: GoogleFonts.inter(color: const Color(0xFF9CA3AF))),
+          items: RequestConsultationFormData.modalidades
+              .map(
+                (m) => DropdownMenuItem(
+                  value: m,
+                  child: Text(RequestConsultationFormData.labelModalidad(m)),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => setState(() => _form.modality = v),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Prioridad',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF6B7280),
           ),
-          const SizedBox(height: 8),
-          OutlinedButton.icon(
-            onPressed: _pickSchedule,
-            icon: const Icon(Icons.event_outlined, color: _primaryBlue),
-            label: Text(
-              _form.scheduledAt == null ? 'Elegir fecha y hora' : _fmtDateTime(_form.scheduledAt!),
-              style: GoogleFonts.inter(
-                fontWeight: FontWeight.w600,
-                color: _form.scheduledAt == null ? const Color(0xFF6B7280) : AppColors.navy,
-              ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String>(
+          value: _form.priority,
+          isExpanded: true,
+          decoration: _fieldDeco(),
+          hint: Text('Selecciona', style: GoogleFonts.inter(color: const Color(0xFF9CA3AF))),
+          items: RequestConsultationFormData.prioridades
+              .map(
+                (p) => DropdownMenuItem(
+                  value: p,
+                  child: Text(RequestConsultationFormData.labelPrioridad(p)),
+                ),
+              )
+              .toList(),
+          onChanged: (v) => setState(() => _form.priority = v),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Antecedentes relevantes',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 8),
+        TextField(
+          controller: _form.antecedentes,
+          maxLines: 5,
+          onChanged: (_) => setState(() {}),
+          decoration: _fieldDeco().copyWith(
+            hintText: 'Alergias, cirugías previas, medicación, etc. (opcional)',
+            hintStyle: GoogleFonts.inter(color: const Color(0xFF9CA3AF)),
+          ),
+        ),
+        const SizedBox(height: 16),
+        Text(
+          'Tipo de consulta',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF6B7280),
+          ),
+        ),
+        const SizedBox(height: 8),
+        DropdownButtonFormField<String?>(
+          value: _specialty,
+          isExpanded: true,
+          decoration: _fieldDeco(),
+          hint: Text(
+            'Selecciona una especialidad',
+            style: GoogleFonts.inter(color: const Color(0xFF9CA3AF)),
+          ),
+          items: [
+            const DropdownMenuItem<String>(
+              value: null,
+              child: Text('Selecciona una especialidad'),
             ),
-            style: OutlinedButton.styleFrom(
-              padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 14),
-              side: const BorderSide(color: Color(0xFFE5E7EB)),
+            ...kMedicalSpecialties.map(
+              (s) => DropdownMenuItem<String>(value: s, child: Text(s)),
+            ),
+          ],
+          onChanged: (v) => setState(() => _specialty = v),
+        ),
+        const SizedBox(height: 22),
+        SizedBox(
+          height: 50,
+          child: FilledButton(
+            style: FilledButton.styleFrom(
+              backgroundColor: _primaryBlue,
+              foregroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
             ),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Modalidad',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
+            onPressed: _goFormDetailsStep,
+            child: Text(
+              'Siguiente',
+              style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700),
             ),
           ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            value: _form.modality,
-            isExpanded: true,
-            decoration: _fieldDeco(),
-            hint: Text('Selecciona', style: GoogleFonts.inter(color: const Color(0xFF9CA3AF))),
-            items: RequestConsultationFormData.modalidades
-                .map(
-                  (m) => DropdownMenuItem(
-                    value: m,
-                    child: Text(RequestConsultationFormData.labelModalidad(m)),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFormSectionDetails() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Paso 2 de 3 · Detalles de la consulta',
+          style: GoogleFonts.inter(
+            fontSize: 12,
+            fontWeight: FontWeight.w600,
+            color: _primaryBlue,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          _specialty == null ? 'Selecciona tipo de consulta en el paso anterior' : _specialty!,
+          style: GoogleFonts.inter(
+            fontSize: 15,
+            fontWeight: FontWeight.w700,
+            color: AppColors.navy,
+          ),
+        ),
+        const SizedBox(height: 16),
+        if (_specialty != null)
+          RequestConsultationStep1Fields(
+            specialty: _specialty,
+            fd: _form,
+            onChanged: () => setState(() {}),
+          )
+        else
+          Text(
+            'Vuelve atrás y elige un tipo de consulta.',
+            style: GoogleFonts.inter(fontSize: 14, color: AppColors.demoText),
+          ),
+        const SizedBox(height: 22),
+        Row(
+          children: [
+            Expanded(
+              child: SizedBox(
+                height: 50,
+                child: OutlinedButton(
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: AppColors.navy,
+                    side: const BorderSide(color: Color(0xFFD1D5DB)),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                   ),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => _form.modality = v),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Prioridad',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
-            ),
-          ),
-          const SizedBox(height: 8),
-          DropdownButtonFormField<String>(
-            value: _form.priority,
-            isExpanded: true,
-            decoration: _fieldDeco(),
-            hint: Text('Selecciona', style: GoogleFonts.inter(color: const Color(0xFF9CA3AF))),
-            items: RequestConsultationFormData.prioridades
-                .map(
-                  (p) => DropdownMenuItem(
-                    value: p,
-                    child: Text(RequestConsultationFormData.labelPrioridad(p)),
+                  onPressed: () => setState(() => _formSection = 0),
+                  child: Text(
+                    'Atrás',
+                    style: GoogleFonts.inter(fontWeight: FontWeight.w700),
                   ),
-                )
-                .toList(),
-            onChanged: (v) => setState(() => _form.priority = v),
-          ),
-          const SizedBox(height: 16),
-          Text(
-            'Antecedentes relevantes',
-            style: GoogleFonts.inter(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF6B7280),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 8),
-          TextField(
-            controller: _form.antecedentes,
-            maxLines: 6,
-            onChanged: (_) => setState(() {}),
-            decoration: _fieldDeco().copyWith(
-              hintText: 'Alergias, cirugías previas, medicación, etc. (opcional)',
-              hintStyle: GoogleFonts.inter(color: const Color(0xFF9CA3AF)),
+            const SizedBox(width: 12),
+            Expanded(
+              flex: 2,
+              child: SizedBox(
+                height: 50,
+                child: FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: _primaryBlue,
+                    foregroundColor: Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: _specialty == null ? null : _goStep2,
+                  child: Text(
+                    'Siguiente',
+                    style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700),
+                  ),
+                ),
+              ),
             ),
-          ),
-          const SizedBox(height: 18),
-          if (_specialty != null) ...[
-            RequestConsultationStep1Fields(
-              specialty: _specialty,
-              fd: _form,
-              onChanged: () => setState(() {}),
-            ),
-            const SizedBox(height: 18),
           ],
-          SizedBox(
-            height: 50,
-            child: FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: _primaryBlue,
-                foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              ),
-              onPressed: _goStep2,
-              child: Text(
-                'Continuar',
-                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700),
-              ),
-            ),
-          ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 
@@ -577,6 +940,15 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
+              Text(
+                'Paso 3 de 3 · Especialista',
+                style: GoogleFonts.inter(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: _primaryBlue,
+                ),
+              ),
+              const SizedBox(height: 8),
               Text(
                 '¿Cómo deseas elegir tu especialista?',
                 style: GoogleFonts.inter(
@@ -699,6 +1071,7 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
                       : () {
                           setState(() {
                             _step = 0;
+                            _formSection = 1;
                           });
                         },
                   child: Text(
@@ -741,68 +1114,61 @@ class _RequestConsultationScreenState extends State<RequestConsultationScreen> {
   }
 }
 
-class _StepperRow extends StatelessWidget {
-  final int step;
+/// Una sola barra de progreso con 3 segmentos (sin indicador anidado en la tarjeta).
+class _ThreeStepProgressBar extends StatelessWidget {
+  /// Paso actual: 0 = información, 1 = detalles, 2 = especialista.
+  final int activeIndex;
 
-  const _StepperRow({required this.step});
+  const _ThreeStepProgressBar({required this.activeIndex});
 
   static const _blue = Color(0xFF2563EB);
   static const _grey = Color(0xFFE5E7EB);
+  static const _labels = ['Información', 'Detalles', 'Especialista'];
 
   @override
   Widget build(BuildContext context) {
-    final secondActive = step >= 1;
+    final idx = activeIndex.clamp(0, 2);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         Row(
-          children: [
-            Expanded(
-              child: Container(
-                height: 5,
-                decoration: BoxDecoration(
-                  color: _blue,
-                  borderRadius: BorderRadius.circular(4),
+          children: List.generate(3, (i) {
+            final filled = i <= idx;
+            return Expanded(
+              child: Padding(
+                padding: EdgeInsets.only(right: i < 2 ? 6 : 0),
+                child: Container(
+                  height: 5,
+                  decoration: BoxDecoration(
+                    color: filled ? _blue : _grey,
+                    borderRadius: BorderRadius.circular(4),
+                  ),
                 ),
               ),
-            ),
-            const SizedBox(width: 8),
-            Expanded(
-              child: Container(
-                height: 5,
-                decoration: BoxDecoration(
-                  color: secondActive ? _blue : _grey,
-                  borderRadius: BorderRadius.circular(4),
-                ),
-              ),
-            ),
-          ],
+            );
+          }),
         ),
         const SizedBox(height: 8),
         Row(
-          children: [
-            Expanded(
+          children: List.generate(3, (i) {
+            return Expanded(
               child: Text(
-                'Información',
+                _labels[i],
+                textAlign: i == 0
+                    ? TextAlign.left
+                    : i == 2
+                        ? TextAlign.right
+                        : TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: GoogleFonts.inter(
-                  fontSize: 12,
+                  fontSize: 11,
+                  fontWeight: FontWeight.w600,
                   color: const Color(0xFF6B7280),
-                  fontWeight: FontWeight.w500,
                 ),
               ),
-            ),
-            Expanded(
-              child: Text(
-                'Seleccionar especialista',
-                textAlign: TextAlign.right,
-                style: GoogleFonts.inter(
-                  fontSize: 12,
-                  color: const Color(0xFF6B7280),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ),
-          ],
+            );
+          }),
         ),
       ],
     );

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 
-import 'screens/app_startup_screen.dart';
+import 'screens/login_screen.dart';
 import 'services/appointment_reminder_service.dart';
 import 'theme/app_colors.dart';
 
@@ -29,7 +29,7 @@ class MediConnectApp extends StatelessWidget {
         scaffoldBackgroundColor: AppColors.pageBackground,
         textTheme: GoogleFonts.interTextTheme(),
       ),
-      home: const AppStartupScreen(),
+      home: const LoginScreen(),
     );
   }
 }

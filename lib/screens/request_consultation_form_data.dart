@@ -13,7 +13,7 @@ class RequestConsultationFormData {
   final TextEditingController fiTipoLesionOtro = TextEditingController();
   String? fiZona;
   final TextEditingController fiZonaOtro = TextEditingController();
-  double fiDolor = 5;
+  int? fiNivelDolor;
   String? fiMovilidad;
   String? fiTratamientoPrevio;
   final TextEditingController fiTratamientoDetalle = TextEditingController();
@@ -61,13 +61,22 @@ class RequestConsultationFormData {
     psDetalle.dispose();
   }
 
-  /// Devuelve mensaje de error o null si es válido.
-  String? validateStep1(String? specialty) {
-    if (specialty == null || specialty.isEmpty) return 'Selecciona el tipo de consulta';
+  /// Fecha, modalidad y prioridad (sección 1 del formulario).
+  String? validateScheduling() {
     if (scheduledAt == null) return 'Indica fecha y hora preferida';
     if (modality == null) return 'Selecciona la modalidad';
     if (priority == null) return 'Selecciona la prioridad';
+    return null;
+  }
 
+  /// Solo tipo de consulta (sección 2).
+  String? validateSpecialtySelected(String? specialty) {
+    if (specialty == null || specialty.isEmpty) return 'Selecciona el tipo de consulta';
+    return null;
+  }
+
+  /// Campos específicos de la especialidad (sección 3).
+  String? validateSpecialtyDetails(String specialty) {
     switch (specialty) {
       case 'Fisioterapia':
         if (fiMotivo.text.trim().length < 2) return 'Indica el motivo de consulta';
@@ -77,6 +86,7 @@ class RequestConsultationFormData {
         }
         if (fiZona == null) return 'Selecciona la zona afectada';
         if (fiZona == 'Otro' && fiZonaOtro.text.trim().isEmpty) return 'Especifica la zona afectada';
+        if (fiNivelDolor == null) return 'Selecciona el nivel de dolor';
         if (fiMovilidad == null) return 'Selecciona la movilidad';
         if (fiTratamientoPrevio == null) return 'Indica si hubo tratamiento previo';
         if (fiTratamientoPrevio == 'si' && fiTratamientoDetalle.text.trim().length < 2) {
@@ -119,6 +129,13 @@ class RequestConsultationFormData {
     return null;
   }
 
+  /// Validación completa antes de paso “especialista” (por si cambian datos entre secciones).
+  String? validateStep1(String? specialty) {
+    return validateScheduling() ??
+        validateSpecialtySelected(specialty) ??
+        (specialty != null ? validateSpecialtyDetails(specialty) : 'Selecciona el tipo de consulta');
+  }
+
   Map<String, dynamic> buildDetailsJson(String specialty) {
     switch (specialty) {
       case 'Fisioterapia':
@@ -128,7 +145,7 @@ class RequestConsultationFormData {
           if (fiTipoLesion == 'Otro') 'tipo_lesion_otro': fiTipoLesionOtro.text.trim(),
           'zona_afectada': fiZona,
           if (fiZona == 'Otro') 'zona_afectada_otro': fiZonaOtro.text.trim(),
-          'nivel_dolor': fiDolor.round(),
+          'nivel_dolor': fiNivelDolor,
           'movilidad': fiMovilidad,
           'tratamiento_previo': fiTratamientoPrevio,
           if (fiTratamientoPrevio == 'si') 'tratamiento_previo_detalle': fiTratamientoDetalle.text.trim(),
